@@ -1,0 +1,6 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Telegram Task Filter",
+  "version": "0.1.0",
+  "identifier": "com.grizzzzzly.telegram-task-filter"
+}

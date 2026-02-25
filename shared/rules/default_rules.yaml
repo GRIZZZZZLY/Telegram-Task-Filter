@@ -1,0 +1,9 @@
+- id: mention_me
+  name: Mention @LindsyQQ
+  enabled: true
+  priority: 100
+  when:
+    mention: "@LindsyQQ"
+  then:
+    create_task: true
+    priority: high
