@@ -42,17 +42,28 @@ class TaskService:
             q = q.filter(Task.thread_id == thread_id)
 
         total = q.count()
-        items = q.order_by(Task.created_at.desc()).offset(offset).limit(limit).all()
+        # Inbox: sort_order first (manual DnD order), then created_at desc for unordered
+        # Done/Snoozed: always newest first
+        if status == TaskStatus.inbox:
+            items = (
+                q.order_by(Task.sort_order.asc().nulls_last(), Task.created_at.desc())
+                .offset(offset).limit(limit).all()
+            )
+        else:
+            items = q.order_by(Task.created_at.desc()).offset(offset).limit(limit).all()
         return items, total
 
     # ── Done flow ──────────────────────────────────────────────────────────
 
-    def mark_done(self, task_id: int) -> Task:
+    def mark_done(self, task_id: int, custom_reply: Optional[str] = None) -> Task:
         """Set status=done, write 'done' event. Returns updated task.
 
         Staged-commit: committed_at is set here as a placeholder.
         The actual Telegram reaction is sent by a background worker
         after the done_commit_delay_seconds window (stage 2).
+
+        Args:
+            custom_reply: if provided, overrides the default reply text from settings.
 
         Raises:
             HTTPException 404: task not found.
@@ -66,19 +77,21 @@ class TaskService:
         task.status = TaskStatus.done
         task.updated_at = now
         task.committed_at = now  # marks "reaction pending / sent"
+        if custom_reply is not None:
+            task.custom_reply = custom_reply.strip() or None
 
         self.db.add(Event(
             task_id=task.id,
             type=EventType.done,
-            payload_json=json.dumps({"task_id": task_id, "ts": now.isoformat()}),
+            payload_json=json.dumps({
+                "task_id": task_id,
+                "custom_reply": custom_reply,
+                "ts": now.isoformat(),
+            }),
             ts=now,
         ))
         self.db.commit()
         self.db.refresh(task)
-
-        # TODO (stage 2): schedule TelegramService.send_done() via background task
-        # after done_commit_delay_seconds to allow undo within the window.
-
         return task
 
     # ── Reopen flow ────────────────────────────────────────────────────────
@@ -198,6 +211,21 @@ class TaskService:
         self.db.commit()
         self.db.refresh(task)
         return task
+
+    # ── Reorder ────────────────────────────────────────────────────────────
+
+    def reorder(self, ids: List[int]) -> None:
+        """Persist manual sort order for inbox tasks.
+
+        Assigns sort_order = position index (0 = top) to each task in `ids`.
+        Tasks not in the list are left unchanged.
+        """
+        for position, task_id in enumerate(ids):
+            task = self.db.get(Task, task_id)
+            if task is not None:
+                task.sort_order = position
+                task.updated_at = _now()
+        self.db.commit()
 
     # ── Clear done tasks ───────────────────────────────────────────────────
 

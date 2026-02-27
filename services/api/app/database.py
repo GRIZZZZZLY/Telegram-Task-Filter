@@ -62,3 +62,11 @@ def _run_migrations() -> None:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN snoozed_until DATETIME"))
             import logging
             logging.getLogger(__name__).info("Migration: added tasks.snoozed_until")
+        if "sort_order" not in existing:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN sort_order INTEGER"))
+            import logging
+            logging.getLogger(__name__).info("Migration: added tasks.sort_order")
+        if "custom_reply" not in existing:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN custom_reply VARCHAR(500)"))
+            import logging
+            logging.getLogger(__name__).info("Migration: added tasks.custom_reply")

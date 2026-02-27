@@ -16,8 +16,20 @@ export function getTasks(params: GetTasksParams = {}): Promise<TaskListResponse>
   return apiFetch<TaskListResponse>(`/tasks${qs ? `?${qs}` : ''}`)
 }
 
-export function markDone(id: number): Promise<Task> {
-  return apiFetch<Task>(`/tasks/${id}/done`, { method: 'POST' })
+export function markDone(id: number, customReply?: string): Promise<Task> {
+  return apiFetch<Task>(`/tasks/${id}/done`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ custom_reply: customReply ?? null }),
+  })
+}
+
+export function reorderTasks(ids: number[]): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>('/tasks/reorder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
 }
 
 export function snoozeTask(id: number, minutes: number): Promise<Task> {

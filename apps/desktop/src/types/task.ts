@@ -12,6 +12,8 @@ export interface Task {
   created_at: string
   committed_at: string | null
   snoozed_until: string | null
+  sort_order: number | null
+  custom_reply: string | null
 }
 
 export interface TaskListResponse {

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import TaskPriority, TaskStatus
-from ..schemas import PriorityIn, ReopenOut, SnoozeIn, TaskListOut, TaskOut
+from ..schemas import DoneIn, PriorityIn, ReorderIn, ReopenOut, SnoozeIn, TaskListOut, TaskOut
 from ..services.task_service import TaskService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -36,16 +36,28 @@ def list_tasks(
 
 
 @router.post("/{task_id}/done", response_model=TaskOut, summary="Mark task done")
-def mark_task_done(task_id: int, db: Session = Depends(get_db)) -> Any:
+def mark_task_done(task_id: int, body: DoneIn = DoneIn(), db: Session = Depends(get_db)) -> Any:
     """Mark task as done. Writes a 'done' event. Sets committed_at timestamp.
 
     The Telegram reaction is sent after the staged-commit delay window (stage 2).
+    Optional `custom_reply` overrides the default reply text from settings.
 
     - **404** task not found
     - **409** task already done
     """
     svc = TaskService(db)
-    return svc.mark_done(task_id)
+    return svc.mark_done(task_id, custom_reply=body.custom_reply)
+
+
+@router.post("/reorder", summary="Reorder inbox tasks")
+def reorder_tasks(body: ReorderIn, db: Session = Depends(get_db)) -> dict:
+    """Persist manual drag-and-drop order for inbox tasks.
+
+    Accepts an ordered list of task IDs (first = top of list).
+    """
+    svc = TaskService(db)
+    svc.reorder(body.ids)
+    return {"ok": True}
 
 
 @router.post("/{task_id}/snooze", response_model=TaskOut, summary="Snooze task")

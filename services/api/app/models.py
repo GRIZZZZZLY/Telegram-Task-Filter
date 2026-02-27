@@ -70,6 +70,12 @@ class Task(Base):
     # Snooze: NULL = not snoozed, NOT NULL = wake up at this UTC time
     snoozed_until = Column(DateTime(timezone=True), nullable=True)
 
+    # Manual sort order within inbox (lower = higher in list). NULL = use created_at order.
+    sort_order = Column(Integer, nullable=True, index=True)
+
+    # Custom reply text override (NULL = use settings default)
+    custom_reply = Column(String(500), nullable=True)
+
     events = relationship("Event", back_populates="task", cascade="all, delete-orphan")
 
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getTasks, markDone, reopenTask, snoozeTask, changePriority } from '@/api/tasks'
+import { getTasks, markDone, reopenTask, snoozeTask, changePriority, reorderTasks } from '@/api/tasks'
 import { WS_URL } from '@/api/client'
 import type { Task, TabId, TaskPriority, WsEvent } from '@/types/task'
 
@@ -12,13 +12,15 @@ interface UseTasksResult {
   error: string | null
   loadingId: number | null
   pendingUndo: { id: number; title: string } | null
-  handleDone: (id: number) => Promise<void>
+  handleDone: (id: number, customReply?: string) => Promise<void>
   handleSnooze: (id: number, minutes: number) => Promise<void>
   handleReopen: (id: number) => Promise<void>
   handleUndoDone: (id: number) => Promise<void>
   handlePriorityChange: (id: number, priority: TaskPriority) => Promise<void>
+  handleReorder: (ids: number[]) => Promise<void>
   clearUndo: () => void
   refetch: () => Promise<void>
+  setTasks: React.Dispatch<React.SetStateAction<Task[]>>
 }
 
 export function useTasks(status: string): UseTasksResult {
@@ -94,13 +96,13 @@ export function useTasks(status: string): UseTasksResult {
     }
   }, [status])
 
-  const handleDone = useCallback(async (id: number) => {
+  const handleDone = useCallback(async (id: number, customReply?: string) => {
     const task = tasks.find((t) => t.id === id)
     if (!task) return
 
     setLoadingId(id)
     try {
-      await markDone(id)
+      await markDone(id, customReply)
       setTasks((prev) => prev.filter((t) => t.id !== id))
       setPendingUndo({ id, title: task.title })
     } catch (err) {
@@ -109,6 +111,16 @@ export function useTasks(status: string): UseTasksResult {
       setLoadingId(null)
     }
   }, [tasks])
+
+  const handleReorder = useCallback(async (ids: number[]) => {
+    // Optimistic: порядок уже применён в TaskList через setTasks
+    try {
+      await reorderTasks(ids)
+    } catch {
+      // Rollback on error
+      await fetchTasks()
+    }
+  }, [fetchTasks])
 
   const handleSnooze = useCallback(async (id: number, minutes: number) => {
     setLoadingId(id)
@@ -175,7 +187,9 @@ export function useTasks(status: string): UseTasksResult {
     handleReopen,
     handleUndoDone,
     handlePriorityChange,
+    handleReorder,
     clearUndo,
     refetch: fetchTasks,
+    setTasks,
   }
 }

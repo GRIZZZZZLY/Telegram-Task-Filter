@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { Loader2, Trash2 } from 'lucide-react'
 import { TaskCard } from './TaskCard'
@@ -6,12 +6,12 @@ import { UndoToast } from './UndoToast'
 import { useTasks } from '@/hooks/useTasks'
 import { useChatNames } from '@/hooks/useChatNames'
 import { clearDoneTasks } from '@/api/tasks'
-import type { TabId, TaskPriority } from '@/types/task'
+import type { TabId, Task, TaskPriority } from '@/types/task'
+import { cn } from '@/lib/utils'
 
 interface Props {
   tab: TabId
   compact?: boolean
-  /** Called whenever inbox task count changes — used by AppShell for TopBar badge */
   onInboxCountChange?: (count: number) => void
 }
 
@@ -27,12 +27,18 @@ export function TaskList({ tab, compact = false, onInboxCountChange }: Props) {
     handleReopen,
     handleUndoDone,
     handlePriorityChange,
+    handleReorder,
     clearUndo,
     refetch,
+    setTasks,
   } = useTasks(tab)
 
   const [clearing, setClearing] = useState(false)
   const chatNames = useChatNames()
+
+  // ── Drag-and-drop state ──────────────────────────────────────────────────
+  const dragIdRef = useRef<number | null>(null)
+  const [dragOverId, setDragOverId] = useState<number | null>(null)
 
   const handleClearDone = useCallback(async () => {
     if (!confirm('Удалить все выполненные задачи?')) return
@@ -47,10 +53,51 @@ export function TaskList({ tab, compact = false, onInboxCountChange }: Props) {
     }
   }, [refetch])
 
-  // Keep parent informed of inbox count for TopBar badge
   useEffect(() => {
     if (tab === 'inbox') onInboxCountChange?.(tasks.length)
   }, [tab, tasks.length, onInboxCountChange])
+
+  // ── DnD handlers (inbox only) ────────────────────────────────────────────
+
+  const onDragStart = (id: number) => {
+    dragIdRef.current = id
+  }
+
+  const onDragOver = (e: React.DragEvent, overId: number) => {
+    e.preventDefault()
+    if (dragIdRef.current !== overId) setDragOverId(overId)
+  }
+
+  const onDrop = (e: React.DragEvent, targetId: number) => {
+    e.preventDefault()
+    const fromId = dragIdRef.current
+    if (fromId === null || fromId === targetId) {
+      setDragOverId(null)
+      return
+    }
+
+    setTasks((prev: Task[]) => {
+      const next = [...prev]
+      const fromIdx = next.findIndex((t) => t.id === fromId)
+      const toIdx = next.findIndex((t) => t.id === targetId)
+      if (fromIdx === -1 || toIdx === -1) return prev
+      const [moved] = next.splice(fromIdx, 1)
+      next.splice(toIdx, 0, moved)
+      // Persist new order
+      void handleReorder(next.map((t) => t.id))
+      return next
+    })
+
+    dragIdRef.current = null
+    setDragOverId(null)
+  }
+
+  const onDragEnd = () => {
+    dragIdRef.current = null
+    setDragOverId(null)
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -90,7 +137,6 @@ export function TaskList({ tab, compact = false, onInboxCountChange }: Props) {
 
   return (
     <>
-      {/* Clear All button — only on Done tab */}
       {tab === 'done' && tasks.length > 0 && (
         <div className="mb-2 flex justify-end">
           <button
@@ -109,17 +155,31 @@ export function TaskList({ tab, compact = false, onInboxCountChange }: Props) {
       <div className="flex flex-col gap-2">
         <AnimatePresence mode="popLayout">
           {tasks.map((task) => (
-            <TaskCard
+            <div
               key={task.id}
-              task={task}
-              compact={compact}
-              chatNames={chatNames}
-              onDone={handleDone}
-              onSnooze={handleSnooze}
-              onReopen={handleReopen}
-              onPriorityChange={(id: number, p: TaskPriority) => handlePriorityChange(id, p)}
-              loadingId={loadingId}
-            />
+              draggable={tab === 'inbox'}
+              onDragStart={() => onDragStart(task.id)}
+              onDragOver={(e) => onDragOver(e, task.id)}
+              onDrop={(e) => onDrop(e, task.id)}
+              onDragEnd={onDragEnd}
+              className={cn(
+                'transition-opacity',
+                dragIdRef.current === task.id && 'opacity-40',
+                dragOverId === task.id && 'ring-2 ring-indigo-500/60 rounded-xl',
+              )}
+            >
+              <TaskCard
+                task={task}
+                compact={compact}
+                chatNames={chatNames}
+                onDone={handleDone}
+                onSnooze={handleSnooze}
+                onReopen={handleReopen}
+                onPriorityChange={(id: number, p: TaskPriority) => handlePriorityChange(id, p)}
+                loadingId={loadingId}
+                isDragging={tab === 'inbox'}
+              />
+            </div>
           ))}
         </AnimatePresence>
       </div>

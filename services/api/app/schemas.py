@@ -22,6 +22,8 @@ class TaskOut(BaseModel):
     source_message_id: Optional[int] = None
     committed_at: Optional[datetime] = None
     snoozed_until: Optional[datetime] = None
+    sort_order: Optional[int] = None
+    custom_reply: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -60,6 +62,16 @@ class ReopenOut(BaseModel):
 class PriorityIn(BaseModel):
     """Request body for PATCH /tasks/{id}/priority."""
     priority: TaskPriority
+
+
+class DoneIn(BaseModel):
+    """Request body for POST /tasks/{id}/done — custom reply is optional."""
+    custom_reply: Optional[str] = Field(default=None, max_length=500)
+
+
+class ReorderIn(BaseModel):
+    """Request body for POST /tasks/reorder — ordered list of task IDs."""
+    ids: List[int]
 
 
 class SettingsOut(BaseModel):

@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ExternalLink, RotateCcw, Clock } from 'lucide-react'
+import { ExternalLink, RotateCcw, Clock, ChevronDown, Check, GripVertical } from 'lucide-react'
 import type { Task, TaskPriority } from '@/types/task'
-import { DoneButton } from './DoneButton'
 import { cn } from '@/lib/utils'
 import { createPortal } from 'react-dom'
 
@@ -10,23 +9,27 @@ import { createPortal } from 'react-dom'
 
 const PRIORITY_CONFIG: Record<TaskPriority, {
   label: string
-  bar: string      // left border colour
-  badge: string    // text badge colour
+  bar: string
+  badge: string
+  badgeBg: string
 }> = {
   high: {
     label: 'HIGH',
     bar: 'bg-red-500',
     badge: 'text-red-400',
+    badgeBg: 'bg-red-500/10 hover:bg-red-500/20 border-red-500/20',
   },
   medium: {
     label: 'MED',
     bar: 'bg-amber-500',
     badge: 'text-amber-400',
+    badgeBg: 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/20',
   },
   low: {
     label: 'LOW',
     bar: 'bg-emerald-500',
     badge: 'text-emerald-400',
+    badgeBg: 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/20',
   },
 }
 
@@ -69,10 +72,8 @@ function formatTime(iso: string): string {
   const d = new Date(iso)
   const now = new Date()
   const diffMin = Math.floor((now.getTime() - d.getTime()) / 60_000)
-
   const timeStr = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 
-  // Same day — show time only
   if (
     d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
@@ -82,7 +83,6 @@ function formatTime(iso: string): string {
     return timeStr
   }
 
-  // Yesterday
   const yesterday = new Date(now)
   yesterday.setDate(now.getDate() - 1)
   if (
@@ -93,7 +93,6 @@ function formatTime(iso: string): string {
     return `вчера ${timeStr}`
   }
 
-  // Older — date + time
   const dateStr = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
   return `${dateStr} ${timeStr}`
 }
@@ -113,14 +112,14 @@ function formatSnoozedUntil(iso: string): string {
 
 interface Props {
   task: Task
-  onDone: (id: number) => void
+  onDone: (id: number, customReply?: string) => void
   onSnooze: (id: number, minutes: number) => void
   onReopen: (id: number) => void
   onPriorityChange: (id: number, priority: TaskPriority) => void
   loadingId: number | null
   compact?: boolean
-  /** Map of chatId → display name from GET /telegram/chats */
   chatNames?: Map<string, string>
+  isDragging?: boolean
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -134,6 +133,7 @@ export function TaskCard({
   loadingId,
   compact = false,
   chatNames,
+  isDragging = false,
 }: Props) {
   const cfg = PRIORITY_CONFIG[task.priority]
   const isLoading = loadingId === task.id
@@ -141,20 +141,29 @@ export function TaskCard({
   const isSnoozed = task.status === 'snoozed'
   const isInbox   = task.status === 'inbox'
 
+  // Snooze dropdown
   const [snoozeOpen, setSnoozeOpen] = useState(false)
   const snoozeRef = useRef<HTMLDivElement>(null)
   const snoozeBtnRef = useRef<HTMLButtonElement>(null)
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; openUp: boolean }>({ top: 0, left: 0, openUp: false })
+  const [snoozePos, setSnoozePos] = useState<{ top: number; left: number; openUp: boolean }>({ top: 0, left: 0, openUp: false })
 
-  // Recalculate dropdown position when opening
+  // Custom reply inline input
+  const [replyOpen, setReplyOpen] = useState(false)
+  const [replyText, setReplyText] = useState('')
+  const replyInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (replyOpen) setTimeout(() => replyInputRef.current?.focus(), 50)
+  }, [replyOpen])
+
   useEffect(() => {
     if (!snoozeOpen || !snoozeBtnRef.current) return
     const rect = snoozeBtnRef.current.getBoundingClientRect()
-    const dropdownH = SNOOZE_OPTIONS.length * 40 + 8 // approx height
+    const dropdownH = SNOOZE_OPTIONS.length * 40 + 8
     const spaceAbove = rect.top
     const spaceBelow = window.innerHeight - rect.bottom
     const openUp = spaceAbove > dropdownH || spaceAbove > spaceBelow
-    setDropdownPos({
+    setSnoozePos({
       top: openUp ? rect.top : rect.bottom + 4,
       left: rect.left,
       openUp,
@@ -168,9 +177,7 @@ export function TaskCard({
       if (
         snoozeRef.current && !snoozeRef.current.contains(target) &&
         snoozeBtnRef.current && !snoozeBtnRef.current.contains(target)
-      ) {
-        setSnoozeOpen(false)
-      }
+      ) setSnoozeOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -181,6 +188,18 @@ export function TaskCard({
     const idx = PRIORITY_CYCLE.indexOf(task.priority)
     const next = PRIORITY_CYCLE[(idx + 1) % PRIORITY_CYCLE.length]
     onPriorityChange(task.id, next)
+  }
+
+  const handleDoneDefault = () => {
+    setReplyOpen(false)
+    onDone(task.id)
+  }
+
+  const handleDoneWithReply = () => {
+    const text = replyText.trim()
+    setReplyOpen(false)
+    setReplyText('')
+    onDone(task.id, text || undefined)
   }
 
   return (
@@ -196,29 +215,40 @@ export function TaskCard({
         isDone && 'opacity-60',
       )}
     >
-      {/* Priority bar — coloured left stripe */}
-      <button
-        onClick={handlePriorityClick}
-        disabled={isDone || isSnoozed}
-        title={isInbox ? 'Сменить приоритет' : undefined}
-        className={cn(
-          'w-1 flex-shrink-0 rounded-l-xl transition-opacity',
-          cfg.bar,
-          isInbox && 'cursor-pointer hover:opacity-80',
-          (isDone || isSnoozed) && 'cursor-default',
-        )}
-      />
+      {/* Priority bar — thin coloured stripe (kept for visual accent) */}
+      <div className={cn('w-1 flex-shrink-0 rounded-l-xl', cfg.bar)} />
 
       {/* Card body */}
       <div className={cn('flex flex-1 flex-col gap-1 px-3', compact ? 'py-2' : 'py-2.5')}>
 
-        {/* Top row: priority label + time */}
+        {/* Top row: priority badge (clickable) + drag handle + time */}
         {!compact && (
-          <div className="flex items-center justify-between gap-2">
-            <span className={cn('text-[10px] font-bold tracking-wider', cfg.badge)}>
+          <div className="flex items-center gap-2">
+            {/* Priority badge — click to cycle */}
+            <button
+              onClick={handlePriorityClick}
+              disabled={isDone || isSnoozed}
+              title={isInbox ? 'Сменить приоритет' : undefined}
+              className={cn(
+                'rounded-md border px-1.5 py-0.5 text-[10px] font-bold tracking-wider transition-colors',
+                cfg.badge,
+                cfg.badgeBg,
+                isInbox && 'cursor-pointer',
+                (isDone || isSnoozed) && 'cursor-default opacity-70',
+              )}
+            >
               {cfg.label}
-            </span>
-            <span className="text-[10px] text-muted-foreground">
+            </button>
+
+            {/* Drag handle — inbox only */}
+            {isDragging && (
+              <span className="cursor-grab text-muted-foreground/30 hover:text-muted-foreground/60 active:cursor-grabbing">
+                <GripVertical className="h-3.5 w-3.5" />
+              </span>
+            )}
+
+            {/* Time — push to right */}
+            <span className="ml-auto text-[10px] text-muted-foreground">
               {isSnoozed && task.snoozed_until
                 ? <span className="text-indigo-400">⏰ {formatSnoozedUntil(task.snoozed_until)}</span>
                 : formatTime(task.created_at)
@@ -235,7 +265,7 @@ export function TaskCard({
           {task.title}
         </p>
 
-        {/* Source chat (hidden in compact) */}
+        {/* Source chat */}
         {!compact && (
           <p className="text-[11px] text-muted-foreground">
             {isSnoozed && task.snoozed_until ? null : (
@@ -244,6 +274,30 @@ export function TaskCard({
               </span></>
             )}
           </p>
+        )}
+
+        {/* Custom reply input — shown when arrow clicked */}
+        {replyOpen && (
+          <div className="flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-2 py-1">
+            <input
+              ref={replyInputRef}
+              type="text"
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleDoneWithReply()
+                if (e.key === 'Escape') { setReplyOpen(false); setReplyText('') }
+              }}
+              placeholder="Свой ответ (Enter — отправить)"
+              className="min-w-0 flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50"
+            />
+            <button
+              onClick={handleDoneWithReply}
+              className="flex-shrink-0 rounded-md bg-indigo-500 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-indigo-600"
+            >
+              <Check className="h-3 w-3" />
+            </button>
+          </div>
         )}
 
         {/* Actions row */}
@@ -269,7 +323,40 @@ export function TaskCard({
               В inbox
             </button>
           ) : (
-            <DoneButton onClick={() => onDone(task.id)} loading={isLoading} />
+            /* Split Done button: [✓ Done] [▾] */
+            <div className="flex items-stretch">
+              {/* Main Done */}
+              <button
+                onClick={handleDoneDefault}
+                disabled={isLoading}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-l-lg border border-r-0 border-indigo-500/20',
+                  'bg-indigo-500/10 px-3 py-1 text-[12px] font-medium text-indigo-400',
+                  'transition-colors hover:bg-indigo-500 hover:text-white hover:border-indigo-500',
+                  'disabled:opacity-50 disabled:cursor-not-allowed',
+                )}
+              >
+                {isLoading
+                  ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  : <Check className="h-3.5 w-3.5" />}
+                Done
+              </button>
+              {/* Arrow — open custom reply */}
+              <button
+                onClick={() => setReplyOpen((v) => !v)}
+                disabled={isLoading}
+                title="Свой ответ"
+                className={cn(
+                  'flex items-center justify-center rounded-r-lg border border-indigo-500/20',
+                  'bg-indigo-500/10 px-1.5 py-1 text-indigo-400',
+                  'transition-colors hover:bg-indigo-500 hover:text-white hover:border-indigo-500',
+                  'disabled:opacity-50',
+                  replyOpen && 'bg-indigo-500/20 border-indigo-500/40',
+                )}
+              >
+                <ChevronDown className={cn('h-3 w-3 transition-transform', replyOpen && 'rotate-180')} />
+              </button>
+            </div>
           )}
 
           {/* Snooze dropdown — inbox only */}
@@ -296,9 +383,9 @@ export function TaskCard({
                   style={{
                     position: 'fixed',
                     zIndex: 9999,
-                    top: dropdownPos.openUp ? undefined : dropdownPos.top,
-                    bottom: dropdownPos.openUp ? window.innerHeight - dropdownPos.top : undefined,
-                    left: dropdownPos.left,
+                    top: snoozePos.openUp ? undefined : snoozePos.top,
+                    bottom: snoozePos.openUp ? window.innerHeight - snoozePos.top : undefined,
+                    left: snoozePos.left,
                   }}
                 >
                   {SNOOZE_OPTIONS.map((opt) => (
@@ -326,6 +413,10 @@ export function TaskCard({
             rel="noreferrer"
             className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
             title="Открыть в Telegram"
+            onClick={(e) => {
+              e.preventDefault()
+              window.electronAPI?.openExternal(buildTgLink(task.source_chat, task.source_message_id))
+            }}
           >
             <ExternalLink className="h-3 w-3" />
           </a>
