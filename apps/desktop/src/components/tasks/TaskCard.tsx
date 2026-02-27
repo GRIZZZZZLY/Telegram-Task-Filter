@@ -4,6 +4,7 @@ import { ExternalLink, RotateCcw, Clock } from 'lucide-react'
 import type { Task, TaskPriority } from '@/types/task'
 import { DoneButton } from './DoneButton'
 import { cn } from '@/lib/utils'
+import { createPortal } from 'react-dom'
 
 // ── Priority config ────────────────────────────────────────────────────────
 
@@ -68,11 +69,33 @@ function formatTime(iso: string): string {
   const d = new Date(iso)
   const now = new Date()
   const diffMin = Math.floor((now.getTime() - d.getTime()) / 60_000)
-  if (diffMin < 1) return 'только что'
-  if (diffMin < 60) return `${diffMin} мин`
-  const diffH = Math.floor(diffMin / 60)
-  if (diffH < 24) return `${diffH} ч`
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+
+  const timeStr = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+
+  // Same day — show time only
+  if (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  ) {
+    if (diffMin < 1) return 'только что'
+    return timeStr
+  }
+
+  // Yesterday
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  if (
+    d.getFullYear() === yesterday.getFullYear() &&
+    d.getMonth() === yesterday.getMonth() &&
+    d.getDate() === yesterday.getDate()
+  ) {
+    return `вчера ${timeStr}`
+  }
+
+  // Older — date + time
+  const dateStr = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+  return `${dateStr} ${timeStr}`
 }
 
 function formatSnoozedUntil(iso: string): string {
@@ -120,11 +143,32 @@ export function TaskCard({
 
   const [snoozeOpen, setSnoozeOpen] = useState(false)
   const snoozeRef = useRef<HTMLDivElement>(null)
+  const snoozeBtnRef = useRef<HTMLButtonElement>(null)
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; openUp: boolean }>({ top: 0, left: 0, openUp: false })
+
+  // Recalculate dropdown position when opening
+  useEffect(() => {
+    if (!snoozeOpen || !snoozeBtnRef.current) return
+    const rect = snoozeBtnRef.current.getBoundingClientRect()
+    const dropdownH = SNOOZE_OPTIONS.length * 40 + 8 // approx height
+    const spaceAbove = rect.top
+    const spaceBelow = window.innerHeight - rect.bottom
+    const openUp = spaceAbove > dropdownH || spaceAbove > spaceBelow
+    setDropdownPos({
+      top: openUp ? rect.top : rect.bottom + 4,
+      left: rect.left,
+      openUp,
+    })
+  }, [snoozeOpen])
 
   useEffect(() => {
     if (!snoozeOpen) return
     const handler = (e: MouseEvent) => {
-      if (snoozeRef.current && !snoozeRef.current.contains(e.target as Node)) {
+      const target = e.target as Node
+      if (
+        snoozeRef.current && !snoozeRef.current.contains(target) &&
+        snoozeBtnRef.current && !snoozeBtnRef.current.contains(target)
+      ) {
         setSnoozeOpen(false)
       }
     }
@@ -147,7 +191,7 @@ export function TaskCard({
       exit={{ opacity: 0, scale: 0.97 }}
       transition={{ duration: 0.2 }}
       className={cn(
-        'group relative flex items-stretch overflow-hidden rounded-xl border border-border/40 bg-card/80 shadow-sm backdrop-blur-sm',
+        'group relative flex items-stretch rounded-xl border border-border/40 bg-card/80 shadow-sm backdrop-blur-sm',
         'transition-colors hover:border-border/70 hover:bg-card',
         isDone && 'opacity-60',
       )}
@@ -230,8 +274,9 @@ export function TaskCard({
 
           {/* Snooze dropdown — inbox only */}
           {isInbox && (
-            <div className="relative" ref={snoozeRef}>
+            <div className="relative">
               <button
+                ref={snoozeBtnRef}
                 onClick={() => setSnoozeOpen((v) => !v)}
                 disabled={isLoading}
                 title="Отложить"
@@ -244,8 +289,18 @@ export function TaskCard({
                 <Clock className="h-3 w-3" />
               </button>
 
-              {snoozeOpen && (
-                <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[140px] rounded-lg border border-border/50 bg-card shadow-xl">
+              {snoozeOpen && createPortal(
+                <div
+                  ref={snoozeRef}
+                  className="min-w-[140px] rounded-lg border border-border/50 bg-card shadow-xl"
+                  style={{
+                    position: 'fixed',
+                    zIndex: 9999,
+                    top: dropdownPos.openUp ? undefined : dropdownPos.top,
+                    bottom: dropdownPos.openUp ? window.innerHeight - dropdownPos.top : undefined,
+                    left: dropdownPos.left,
+                  }}
+                >
                   {SNOOZE_OPTIONS.map((opt) => (
                     <button
                       key={opt.label}
@@ -258,7 +313,8 @@ export function TaskCard({
                       {opt.label}
                     </button>
                   ))}
-                </div>
+                </div>,
+                document.body
               )}
             </div>
           )}

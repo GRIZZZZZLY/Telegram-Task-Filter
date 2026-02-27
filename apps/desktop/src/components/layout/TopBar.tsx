@@ -27,10 +27,15 @@ export function TopBar({ inboxCount, onOpenSettings }: Props) {
 
   return (
     <header
-      // pr-[120px] reserves space for the 3 fixed WindowControls buttons (3 × w-10 = 120px)
-      className="flex h-11 items-center justify-between border-b border-border/50 bg-background/60 pl-3 pr-[120px] backdrop-blur-md"
+      className="relative flex h-11 items-center justify-between border-b border-border/50 bg-background/60 pl-3 pr-[120px] backdrop-blur-md"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
+      {/* no-drag cutout for WindowControls zone (right 120px) */}
+      <div
+        className="absolute right-0 top-0 h-full w-[120px]"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      />
+
       {/* Left: title + badge */}
       <div className="flex items-center gap-2">
         <span className="text-sm font-semibold tracking-tight select-none">
