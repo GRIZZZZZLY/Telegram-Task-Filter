@@ -1,99 +1,153 @@
-# TG Focus Filter (MVP)
+# TG Focus Filter
 
-Личный фильтр внимания для Telegram: превращает поток сообщений в компактный список задач.
+Десктопное приложение для Windows — личный «фильтр внимания» для Telegram.  
+Слушает выбранные чаты, извлекает задачи по правилам и показывает их в компактном окне поверх всех окон.
 
-## Что делает MVP
-- Слушает выбранные чаты/ветки Telegram через Telethon.
-- По rule-based логике создаёт задачи из сообщений.
-- Показывает задачи в desktop UI (Tauri + React).
-- Позволяет закрывать задачу из UI.
-- При закрытии ставит реакцию в исходном сообщении Telegram.
+---
 
-## Архитектура
-- `apps/desktop` — Tauri + React UI.
-- `services/api` — FastAPI backend + workers.
-- `shared/rules/default_rules.yaml` — правила извлечения задач.
-- `SQLite` — локальное хранилище задач/событий.
+## Что это
 
-## Требования
-- Node.js 20+
-- Python 3.11+
-- Rust toolchain (для Tauri)
-- Telegram API credentials (`TG_API_ID`, `TG_API_HASH`)
+- Всегда-поверх-окно (always-on-top) с плоским списком задач
+- Задачи создаются автоматически из входящих сообщений Telegram по YAML-правилам
+- Поддержка @упоминаний, ключевых слов, фильтрации по чатам и тредам
+- Реакция 👍 и ответ «Готово ✅» отправляются в чат при выполнении задачи
+- Откладывание задач (snooze), приоритеты, авто-очистка
+- Полностью портабельный `.exe` — не требует установки Python или Node.js
 
-## Быстрый старт (локально)
+---
 
-### 1) Клонируй и настрой env
-```bash
-cp .env.example .env
-# заполни значения
+## Стек
+
+| Слой | Технологии |
+|---|---|
+| Десктоп | Electron 40, React 18, TypeScript, Tailwind CSS |
+| Backend | Python 3.13, FastAPI, Uvicorn |
+| Telegram | Telethon (MTProto) |
+| База данных | SQLite + SQLAlchemy |
+| Правила | YAML (rule-based, без AI) |
+| Сборка | PyInstaller (backend) + electron-builder (frontend) |
+
+---
+
+## Быстрый старт
+
+### Готовый `.exe` (рекомендуется)
+
+1. Скачать `TG-Focus-Filter-*-portable.exe` из раздела Releases
+2. Запустить `.exe`
+3. При первом запуске пройти авторизацию в Telegram через интерфейс приложения
+
+Подробнее: [docs/SETUP.md](docs/SETUP.md)
+
+### Сборка из исходников
+
+```powershell
+# Предварительно: Python 3.13, Node.js v24, venv с зависимостями
+build.bat
+# Результат: apps/desktop/release/TG-Focus-Filter-*-portable.exe
 ```
 
-### 2) Подними backend
-```bash
-cd services/api
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8787
+Подробнее: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+
+---
+
+## Структура проекта
+
+```
+Telegram-Task-Filter/
+├── .env                          # Конфигурация (не в git)
+├── .env.example                  # Шаблон конфигурации
+├── build.bat                     # Точка входа сборки
+├── shared/
+│   └── rules/
+│       └── default_rules.yaml    # Правила фильтрации сообщений
+├── services/
+│   └── api/                      # Python FastAPI backend
+│       ├── app/
+│       │   ├── main.py           # FastAPI app, CORS, lifespan
+│       │   ├── config.py         # Настройки (pydantic-settings)
+│       │   ├── routers/          # HTTP роутеры
+│       │   ├── services/         # Бизнес-логика (Telegram)
+│       │   └── workers/          # Фоновые задачи asyncio
+│       ├── backend.spec          # PyInstaller конфиг
+│       └── tests/                # pytest тесты
+├── apps/
+│   └── desktop/                  # Electron + React frontend
+│       ├── electron/
+│       │   ├── main.ts           # Electron main process
+│       │   └── preload.ts        # contextBridge API
+│       └── src/
+│           ├── components/       # React компоненты
+│           ├── api/              # HTTP клиенты
+│           └── hooks/            # Кастомные хуки
+├── scripts/
+│   ├── build.ps1                 # PowerShell скрипт сборки
+│   └── auth_telegram.py          # CLI авторизация (dev)
+└── docs/
+    ├── AUTH_GUIDE.md             # Шпаргалка по авторизации
+    ├── SETUP.md                  # Установка и первый запуск
+    └── DEVELOPMENT.md            # Гайд для разработчика
 ```
 
-### 3) Подними desktop UI
-```bash
-cd apps/desktop
-npm install
-npm run tauri dev
+---
+
+## Хранение данных
+
+**Packaged (`.exe`):** `%APPDATA%\tg-focus-filter-desktop\`
+
+```
+tg-focus-filter-desktop\
+├── .env                  # конфигурация
+├── sessions\
+│   └── user.session      # Telethon сессия (SQLite)
+└── data\
+    └── focus_filter.db   # база задач (SQLite)
 ```
 
-## Структура проекта (MVP)
-```txt
-tg-focus-filter/
-  apps/
-    desktop/
-  services/
-    api/
-      app/
-        routers/
-        services/
-        workers/
-  shared/
-    rules/
-  .env.example
-  README.md
+**Dev режим:** те же папки в корне проекта (`D:\Telegram-Task-Filter\`).
+
+---
+
+## Правила фильтрации
+
+Файл `shared/rules/default_rules.yaml`:
+
+```yaml
+- id: mention_me
+  name: Mention @handle
+  enabled: true
+  priority: 100          # выше = проверяется первым
+  when:
+    mention: "@myhandle" # case-insensitive
+    keywords: ["todo"]   # ANY из ключевых слов (опционально)
+    chat_id: "-100123"   # ID чата (опционально)
+    thread_id: "173"     # ID треда (опционально)
+  then:
+    create_task: true
+    priority: high       # low | medium | high
 ```
 
-## API (минимум)
-- `GET /health`
-- `GET /tasks`
-- `POST /tasks/{id}/done`
-- `GET /rules`
-- `PUT /rules/{id}`
-- `WS /ws/tasks`
+Логика: все условия `when` — AND. Первое совпавшее правило (по убыванию `priority`) определяет результат.
 
-## База данных (минимум)
-- `tasks`
-- `events`
-- `rules`
-- `message_links`
+---
 
-## Поведение Done
-1. UI отправляет `POST /tasks/{id}/done`.
-2. Backend меняет статус задачи.
-3. `action_worker` ставит реакцию на исходное сообщение в Telegram.
-4. Пишется событие `reaction_sent`.
+## API Backend
 
-## Безопасность
-- Не хранить секреты в репозитории.
-- `.env` должен быть в `.gitignore`.
-- Telethon session-файлы хранить локально, не коммитить.
+Backend запускается на `http://localhost:8787`.
 
-## Ограничения MVP
-- Rule-based извлечение (без AI-классификации).
-- Single-user режим.
-- SQLite локально (без синхронизации между устройствами).
+| Группа | Эндпоинты |
+|---|---|
+| Здоровье | `GET /health` |
+| Авторизация | `GET /auth/status`, `POST /auth/start`, `POST /auth/verify` |
+| Задачи | `GET /tasks`, `POST /tasks/{id}/done`, `POST /tasks/{id}/reopen`, `POST /tasks/{id}/snooze`, `PATCH /tasks/{id}/priority`, `DELETE /tasks/done` |
+| Настройки | `GET /settings`, `PATCH /settings` |
+| Telegram | `GET /telegram/chats`, `GET /telegram/threads/{chat_id}`, `POST /telegram/restart-listener` |
+| WebSocket | `WS /ws/tasks` |
 
-## Roadmap после MVP
-- Улучшенный dedup задач.
-- AI-классификация сложных сообщений (опционально).
-- Batch-операции в UI.
-- Экспорт метрик (создано/закрыто/зависло).
+---
+
+## Документация
+
+- [docs/AUTH_GUIDE.md](docs/AUTH_GUIDE.md) — шпаргалка по авторизации в Telegram
+- [docs/SETUP.md](docs/SETUP.md) — установка и первый запуск
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — разработка, тесты, сборка

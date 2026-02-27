@@ -1,9 +1,9 @@
 - id: mention_me
-  name: Mention @LindsyQQ
+  name: Mention @igo_kravts
   enabled: true
   priority: 100
   when:
-    mention: "@LindsyQQ"
+    mention: "@igo_kravts"
   then:
     create_task: true
     priority: high

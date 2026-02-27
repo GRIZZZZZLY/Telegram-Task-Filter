@@ -5,10 +5,21 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
-data/
+**/data/*.db
+**/data/*.db-shm
+**/data/*.db-wal
+# Telethon sessions — never commit
+sessions/*.session
+sessions/*.session-journal
 *.session
 *.session-journal
+# Test artifacts
+*.db
 node_modules/
 dist/
+dist-electron/
+release/
+build/
+*.tsbuildinfo
 target/
 .DS_Store

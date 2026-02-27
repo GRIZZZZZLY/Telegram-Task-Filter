@@ -1,0 +1,223 @@
+import { useState, FormEvent } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Loader2, ArrowRight, KeyRound } from 'lucide-react'
+import { OtpInput } from './OtpInput'
+import { AnimatedGradientBg } from '@/components/ui/AnimatedGradientBg'
+import { useSetup } from '@/hooks/useSetup'
+
+const variants = {
+  enter: { opacity: 0, x: 24 },
+  center: { opacity: 1, x: 0 },
+  exit: { opacity: 0, x: -24 },
+}
+
+function CredentialsStep({
+  onSubmit,
+  submitting,
+  error,
+}: {
+  onSubmit: (params: { apiId: number; apiHash: string; phone: string }) => void
+  submitting: boolean
+  error: string | null
+}) {
+  const [apiId, setApiId] = useState('')
+  const [apiHash, setApiHash] = useState('')
+  const [phone, setPhone] = useState('')
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault()
+    const id = parseInt(apiId, 10)
+    if (!id || !apiHash || !phone) return
+    onSubmit({ apiId: id, apiHash: apiHash.trim(), phone: phone.trim() })
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted-foreground">
+          API ID
+        </label>
+        <input
+          type="number"
+          value={apiId}
+          onChange={(e) => setApiId(e.target.value)}
+          placeholder="12345678"
+          required
+          className="rounded-lg border border-border bg-background/60 px-3 py-2 text-sm outline-none transition-colors focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted-foreground">
+          API Hash
+        </label>
+        <input
+          type="text"
+          value={apiHash}
+          onChange={(e) => setApiHash(e.target.value)}
+          placeholder="a1b2c3d4e5f6..."
+          required
+          className="rounded-lg border border-border bg-background/60 px-3 py-2 text-sm font-mono outline-none transition-colors focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted-foreground">
+          Номер телефона
+        </label>
+        <input
+          type="tel"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="+79001234567"
+          required
+          className="rounded-lg border border-border bg-background/60 px-3 py-2 text-sm outline-none transition-colors focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+        />
+      </div>
+
+      {error && (
+        <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+          {error}
+        </p>
+      )}
+
+      <button
+        type="submit"
+        disabled={submitting || !apiId || !apiHash || !phone}
+        className="flex items-center justify-center gap-2 rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {submitting ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <>
+            Получить код
+            <ArrowRight className="h-4 w-4" />
+          </>
+        )}
+      </button>
+    </form>
+  )
+}
+
+function OtpStep({
+  hint,
+  onSubmit,
+  submitting,
+  error,
+}: {
+  hint: string
+  onSubmit: (code: string) => void
+  submitting: boolean
+  error: string | null
+}) {
+  const [code, setCode] = useState('')
+
+  return (
+    <div className="flex flex-col items-center gap-5">
+      <p className="text-center text-sm text-muted-foreground">{hint}</p>
+
+      <OtpInput value={code} onChange={setCode} disabled={submitting} />
+
+      {error && (
+        <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+          {error}
+        </p>
+      )}
+
+      <button
+        onClick={() => code.length === 5 && onSubmit(code)}
+        disabled={submitting || code.length < 5}
+        className="flex items-center gap-2 rounded-lg bg-indigo-500 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {submitting ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          'Подтвердить'
+        )}
+      </button>
+    </div>
+  )
+}
+
+export function SetupWizard({ onComplete }: { onComplete: () => void }) {
+  const { step, hint, error, submitting, startAuth, verifyOtp } = useSetup()
+
+  // Auto-redirect when done
+  if (step === 'done') {
+    onComplete()
+    return null
+  }
+
+  if (step === 'loading') {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative flex h-screen flex-col items-center justify-center">
+      <AnimatedGradientBg />
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="relative z-10 w-full max-w-sm"
+      >
+        <div className="rounded-2xl border border-border/50 bg-card/80 p-6 shadow-2xl backdrop-blur-md">
+          {/* Заголовок */}
+          <div className="mb-6 flex flex-col items-center gap-2 text-center">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/10">
+              <KeyRound className="h-5 w-5 text-indigo-400" />
+            </div>
+            <h1 className="text-lg font-semibold">Настройка Telegram</h1>
+            <p className="text-xs text-muted-foreground">
+              {step === 'credentials'
+                ? 'Введите данные из my.telegram.org/apps'
+                : 'Введите код из Telegram'}
+            </p>
+          </div>
+
+          {/* Шаги */}
+          <AnimatePresence mode="wait">
+            {step === 'credentials' && (
+              <motion.div
+                key="credentials"
+                variants={variants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.2 }}
+              >
+                <CredentialsStep
+                  onSubmit={startAuth}
+                  submitting={submitting}
+                  error={error}
+                />
+              </motion.div>
+            )}
+
+            {step === 'otp' && (
+              <motion.div
+                key="otp"
+                variants={variants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.2 }}
+              >
+                <OtpStep
+                  hint={hint}
+                  onSubmit={verifyOtp}
+                  submitting={submitting}
+                  error={error}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
