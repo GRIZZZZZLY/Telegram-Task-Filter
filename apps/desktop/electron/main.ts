@@ -16,6 +16,9 @@ import fs from 'fs'
 import path from 'path'
 import { deflateSync } from 'zlib'
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface WindowState { x: number; y: number; width: number; height: number }
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // vite-plugin-electron sets this env var when the dev server is ready.
@@ -55,7 +58,7 @@ DONE_COMMIT_DELAY_SECONDS=5
 # Filters
 FILTER_IGNORE_OWN=true
 FILTER_MIN_TEXT_LENGTH=0
-FILTER_STRICT_MENTIONS=false
+FILTER_STRICT_MENTIONS=true
 
 # Auto-cleanup (0 = disabled)
 CLEANUP_DONE_AFTER_DAYS=0
@@ -99,12 +102,16 @@ function ensureUserDataDir(): void {
       '# Filters',
       'FILTER_IGNORE_OWN=true',
       'FILTER_MIN_TEXT_LENGTH=0',
-      'FILTER_STRICT_MENTIONS=false',
+      'FILTER_STRICT_MENTIONS=true',
       '',
       '# Auto-cleanup (0 = disabled)',
       'CLEANUP_DONE_AFTER_DAYS=0',
       '',
+      '# Catch-up scan on startup (0 = disabled, max 168 h)',
+      'CATCHUP_HOURS=8',
+      '',
       '# UI',
+      'NOTIFICATIONS_ENABLED=true',
       'SOUND_ENABLED=true',
       'COMPACT_MODE=false',
     ].join('\n')
@@ -117,7 +124,61 @@ let win: BrowserWindow | null = null
 let tray: Tray | null = null
 let isPinned = true
 let soundEnabled = true
+let notificationsEnabled = true
 let backendProc: ChildProcess | null = null
+let saveStateTimeout: ReturnType<typeof setTimeout> | null = null
+let logStream: fs.WriteStream | null = null
+
+// ── File logging ─────────────────────────────────────────────────────────────
+
+function initFileLogging(): void {
+  try {
+    const logsDir = path.join(APP_DATA_DIR, 'logs')
+    fs.mkdirSync(logsDir, { recursive: true })
+    const dateStr = new Date().toISOString().slice(0, 10)
+    logStream = fs.createWriteStream(path.join(logsDir, `app-${dateStr}.log`), { flags: 'a' })
+
+    const _origLog = console.log.bind(console)
+    const _origWarn = console.warn.bind(console)
+    const _origError = console.error.bind(console)
+
+    const writeLine = (level: string, ...args: unknown[]) => {
+      const msg = `${new Date().toISOString()} ${level} ${args.map(String).join(' ')}\n`
+      logStream?.write(msg)
+    }
+
+    console.log   = (...args) => { _origLog(...args);   writeLine('[INFO ]', ...args) }
+    console.warn  = (...args) => { _origWarn(...args);  writeLine('[WARN ]', ...args) }
+    console.error = (...args) => { _origError(...args); writeLine('[ERROR]', ...args) }
+  } catch (e) {
+    console.error('[Logs] Failed to init file logging:', e)
+  }
+}
+
+// ── Window state persistence ──────────────────────────────────────────────────
+
+function windowStatePath(): string {
+  return path.join(APP_DATA_DIR, 'window-state.json')
+}
+
+function readWindowState(): Partial<WindowState> {
+  try {
+    const raw = fs.readFileSync(windowStatePath(), 'utf-8')
+    return JSON.parse(raw) as WindowState
+  } catch {
+    return {}
+  }
+}
+
+function saveWindowState(): void {
+  if (!win || win.isMinimized() || win.isMaximized()) return
+  const bounds = win.getBounds()
+  try {
+    fs.writeFileSync(windowStatePath(), JSON.stringify(bounds), 'utf-8')
+  } catch {
+    // non-fatal
+  }
+}
 
 // ── Icon generator (no external deps) ────────────────────────────────────────
 
@@ -161,9 +222,35 @@ function makePng16(r: number, g: number, b: number): Buffer {
   return Buffer.concat([sig, pngChunk('IHDR', ihdrData), pngChunk('IDAT', deflateSync(raw)), pngChunk('IEND', Buffer.alloc(0))])
 }
 
+function iconCandidates(): string[] {
+  if (app.isPackaged) {
+    return [
+      path.join(process.resourcesPath, 'assets', 'icon.ico'),
+      path.join(process.resourcesPath, 'icon.ico'),
+    ]
+  }
+  return [
+    path.join(PROJECT_ROOT, 'apps', 'desktop', 'assets', 'icon.ico'),
+    path.join(PROJECT_ROOT, 'apps', 'desktop', 'public', 'icon.ico'),
+  ]
+}
+
+function createAppIcon(): nativeImage {
+  for (const candidate of iconCandidates()) {
+    if (fs.existsSync(candidate)) {
+      const img = nativeImage.createFromPath(candidate)
+      if (!img.isEmpty()) return img
+    }
+  }
+  try {
+    return nativeImage.createFromBuffer(makePng16(79, 70, 229))
+  } catch {
+    return nativeImage.createEmpty()
+  }
+}
+
 function createTrayIcon(): nativeImage {
-  try { return nativeImage.createFromBuffer(makePng16(79, 70, 229)) }
-  catch { return nativeImage.createEmpty() }
+  return createAppIcon()
 }
 
 // ── Backend management ────────────────────────────────────────────────────────
@@ -323,21 +410,29 @@ async function loadWithRetry(win: BrowserWindow, url: string, attempts = 10, del
 // ── Window ────────────────────────────────────────────────────────────────────
 
 function createWindow(): void {
-  const { width: sw } = screen.getPrimaryDisplay().workAreaSize
+  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
+  const saved = readWindowState()
+
+  // Clamp saved position to visible screen area (handles multi-monitor changes)
+  const winWidth  = saved.width  ?? 420
+  const winHeight = saved.height ?? 680
+  const winX = saved.x != null ? Math.min(Math.max(saved.x, 0), sw - winWidth)  : sw - winWidth  - 20
+  const winY = saved.y != null ? Math.min(Math.max(saved.y, 0), sh - winHeight) : 40
 
   win = new BrowserWindow({
-    width: 420,
-    height: 680,
+    width: winWidth,
+    height: winHeight,
     minWidth: 340,
     minHeight: 300,
-    x: sw - 440,
-    y: 40,
+    x: winX,
+    y: winY,
     frame: false,
     transparent: false,
     alwaysOnTop: isPinned,
     resizable: true,
     skipTaskbar: false,
     backgroundColor: '#0f0f13',
+    icon: createAppIcon(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -350,8 +445,17 @@ function createWindow(): void {
   // Show loading screen immediately, then load real URL once backend is ready
   win.loadURL(LOADING_HTML)
 
-  // Hide to tray instead of closing
+  // Save position on move / resize (debounced 500 ms)
+  const debouncedSave = () => {
+    if (saveStateTimeout) clearTimeout(saveStateTimeout)
+    saveStateTimeout = setTimeout(saveWindowState, 500)
+  }
+  win.on('moved',   debouncedSave)
+  win.on('resized', debouncedSave)
+
+  // Hide to tray instead of closing (save state first)
   win.on('close', (e) => {
+    saveWindowState()
     if (!app.isQuitting) {
       e.preventDefault()
       win?.hide()
@@ -437,7 +541,9 @@ ipcMain.on('window:toggle-pin', () => {
   }
 })
 ipcMain.handle('window:get-pin', () => isPinned)
-ipcMain.on('app:set-sound', (_event, enabled: boolean) => { soundEnabled = enabled })
+ipcMain.on('app:set-sound',          (_event, enabled: boolean) => { soundEnabled = enabled })
+ipcMain.on('app:set-notifications',  (_event, enabled: boolean) => { notificationsEnabled = enabled })
+ipcMain.handle('app:get-version', () => app.getVersion())
 ipcMain.on('shell:open-external', (_event, url: string) => { void shell.openExternal(url) })
 ipcMain.on('window:toggle-maximize', () => {
   if (win?.isMaximized()) win.unmaximize()
@@ -449,16 +555,35 @@ ipcMain.on('app:quit', () => {
   app.quit()
 })
 
+ipcMain.on('app:open-logs-folder', () => {
+  const logsDir = path.join(APP_DATA_DIR, 'logs')
+  void shell.openPath(logsDir)
+})
+
+ipcMain.handle('dialog:confirm', async (_event, message: string) => {
+  if (!win) return false
+  const result = await dialog.showMessageBox(win, {
+    type: 'question',
+    buttons: ['Отмена', 'Подтвердить'],
+    defaultId: 1,
+    cancelId: 0,
+    message,
+    noLink: true,
+  })
+  return result.response === 1
+})
+
 ipcMain.on('app:notify', (_event, { title, body }: { title: string; body: string }) => {
   // Don't distract if the window is visible and focused
   if (win?.isFocused()) return
 
+  if (!notificationsEnabled) return
   if (!Notification.isSupported()) return
 
   const n = new Notification({
     title,
     body,
-    icon: nativeImage.createFromBuffer(makePng16(79, 70, 229)),
+    icon: createAppIcon(),
     silent: !soundEnabled,
   })
 
@@ -475,9 +600,17 @@ ipcMain.on('app:notify', (_event, { title, body }: { title: string; body: string
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
+  // 0. Set Windows App User Model ID — required for correct taskbar icon grouping
+  //    and association between the exe icon and the running window.
+  app.setAppUserModelId('com.tgfocusfilter.app')
+
   // 0. Resolve user-data dir and prepare it for first run
   APP_DATA_DIR = app.getPath('userData')
   ensureUserDataDir()
+
+  // 0a. File logging (redirects console output to logs/app-DATE.log)
+  initFileLogging()
+  console.log(`[App] Starting v${app.getVersion()} | packaged=${app.isPackaged} | userData=${APP_DATA_DIR}`)
 
   // 1. Show window immediately with loading screen
   createWindow()
@@ -494,6 +627,46 @@ app.whenReady().then(async () => {
   // 3. Load the React app immediately — it handles "backend not ready" gracefully
   //    (shows a connecting screen internally and retries automatically)
   await loadApp()
+
+  // 4. Auto-update check (packaged only — skipped in dev to avoid errors)
+  if (app.isPackaged) {
+    try {
+      // electron-updater must be listed in dependencies and npm install run.
+      // Configure GitHub repo in package.json build.publish section.
+      const { autoUpdater } = await import('electron-updater')
+      autoUpdater.logger = null  // suppress noisy updater logs to stdout
+      autoUpdater.on('update-available', () => {
+        console.log('[Updater] Update available — downloading...')
+        if (Notification.isSupported()) {
+          new Notification({
+            title: 'Обновление доступно',
+            body: 'Загрузка новой версии TG Focus Filter...',
+            silent: true,
+          }).show()
+        }
+      })
+      autoUpdater.on('update-downloaded', () => {
+        console.log('[Updater] Update downloaded — ready to install')
+        if (Notification.isSupported()) {
+          const n = new Notification({
+            title: 'Обновление готово',
+            body: 'Нажмите для перезапуска и установки.',
+            silent: !soundEnabled,
+          })
+          n.on('click', () => { autoUpdater.quitAndInstall() })
+          n.show()
+        }
+      })
+      autoUpdater.on('error', (err: Error) => {
+        // Non-fatal: log but don't bother the user
+        console.error('[Updater] Error:', err.message)
+      })
+      await autoUpdater.checkForUpdatesAndNotify()
+    } catch {
+      // electron-updater not installed or GitHub not configured — skip silently
+      console.log('[Updater] electron-updater not available or not configured')
+    }
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

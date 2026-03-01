@@ -1,14 +1,20 @@
 import { useState, useEffect } from 'react'
+import { cn } from '@/lib/utils'
 import { AnimatedGradientBg } from '@/components/ui/AnimatedGradientBg'
 import { WindowControls } from '@/components/ui/WindowControls'
 import { TopBar } from './TopBar'
 import { FilterTabs } from './FilterTabs'
 import { TaskList } from '@/components/tasks/TaskList'
 import { SettingsScreen } from '@/components/settings/SettingsScreen'
+import { StatsScreen } from '@/components/stats/StatsScreen'
 import { TelegramAuthScreen } from '@/components/auth/TelegramAuthScreen'
 import { getSettings } from '@/api/settings'
 import { getAuthStatus } from '@/api/auth'
 import { useBackendReady } from '@/hooks/useBackendReady'
+import { useTabCounts } from '@/hooks/useTabCounts'
+import { setSoundEnabled, setNotificationSound } from '@/lib/sound'
+import type { SoundPreset } from '@/lib/sound'
+import { setMentionHandles } from '@/lib/text'
 import type { TabId } from '@/types/task'
 
 // ── Auth state ────────────────────────────────────────────────────────────────
@@ -39,13 +45,21 @@ function DragStrip() {
 
 // ── AppShell ──────────────────────────────────────────────────────────────────
 
-export function AppShell() {
+interface AppShellProps {
+  pinSet?: boolean
+  onPinChanged?: () => void
+}
+
+export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
   const { ready, elapsed, timedOut } = useBackendReady()
   const [tab, setTab] = useState<TabId>('inbox')
   const [inboxCount, setInboxCount] = useState(0)
   const [showSettings, setShowSettings] = useState(false)
+  const [showStats, setShowStats] = useState(false)
   const [compact, setCompact] = useState(false)
   const [authState, setAuthState] = useState<AuthState>({ checked: false })
+  const [taskRefreshKey, setTaskRefreshKey] = useState(0)
+  const tabCounts = useTabCounts()
 
   // Once backend is ready, check if Telegram is authorized
   useEffect(() => {
@@ -65,11 +79,21 @@ export function AppShell() {
       })
   }, [ready])
 
-  // Load compact mode preference from backend settings on mount
+  // Load settings from backend and sync relevant ones to Electron main process
   useEffect(() => {
     if (!ready || (authState.checked && !authState.connected)) return
     getSettings()
-      .then((s) => setCompact(s.compact_mode))
+      .then((s) => {
+        setCompact(s.compact_mode)
+        // Store mention handles for display stripping in TaskCard / TaskDetailModal
+        setMentionHandles(s.tg_mention_handles)
+        // Sync sound to renderer-side synth (custom sound)
+        setSoundEnabled(s.sound_enabled)
+        setNotificationSound(s.notification_sound as SoundPreset)
+        // Sync notifications flag to Electron main (OS notifications); sound is silent there
+        window.electronAPI?.setSoundEnabled(false)
+        window.electronAPI?.setNotificationsEnabled(s.notifications_enabled)
+      })
       .catch(() => {/* ignore */})
   }, [ready, showSettings, authState])
 
@@ -236,30 +260,49 @@ export function AppShell() {
       <AnimatedGradientBg />
       <WindowControls />
 
-      {showSettings ? (
-        <SettingsScreen onClose={() => setShowSettings(false)} />
-      ) : (
-        <>
-          <TopBar
-            inboxCount={inboxCount}
-            onOpenSettings={() => setShowSettings(true)}
-          />
-
-          {/* Tabs */}
-          <div className="flex items-center justify-center border-b border-border/30 px-4 py-2 backdrop-blur-sm">
-            <FilterTabs active={tab} onChange={setTab} />
-          </div>
-
-          {/* Content */}
-          <main className="flex flex-1 flex-col overflow-y-auto p-3">
-            <TaskList
-              tab={tab}
-              compact={compact}
-              onInboxCountChange={setInboxCount}
-            />
-          </main>
-        </>
+      {/* Settings — монтируется поверх основного UI, но не размонтирует его */}
+      {showSettings && (
+        <SettingsScreen
+          onClose={() => setShowSettings(false)}
+          pinSet={pinSet}
+          onPinChanged={onPinChanged}
+          onSaved={() => setTaskRefreshKey((k) => k + 1)}
+        />
       )}
+
+      {/* Stats — полноэкранный оверлей статистики */}
+      {showStats && (
+        <StatsScreen onClose={() => setShowStats(false)} />
+      )}
+
+      {/* Main UI — скрывается через CSS когда открыты настройки или статистика,
+          но остаётся смонтированным чтобы WebSocket и звук работали */}
+      <div className={cn('flex flex-1 flex-col overflow-hidden', (showSettings || showStats) && 'hidden')}>
+        <TopBar
+          inboxCount={inboxCount}
+          onOpenSettings={() => setShowSettings(true)}
+          onOpenStats={() => setShowStats(true)}
+        />
+
+        {/* Tabs */}
+        <div className="flex items-center justify-center border-b border-border/30 px-4 py-2 backdrop-blur-sm">
+          <FilterTabs
+            active={tab}
+            onChange={setTab}
+            counts={{ inbox: inboxCount, done: tabCounts.done, snoozed: tabCounts.snoozed }}
+          />
+        </div>
+
+        {/* Content */}
+        <main className="flex flex-1 flex-col overflow-y-auto p-3">
+          <TaskList
+            tab={tab}
+            compact={compact}
+            onInboxCountChange={setInboxCount}
+            refreshTrigger={taskRefreshKey}
+          />
+        </main>
+      </div>
     </div>
   )
 }

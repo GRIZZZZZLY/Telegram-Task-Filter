@@ -18,9 +18,18 @@ export interface AppSettings {
   // Cleanup
   cleanup_done_after_days: number
 
+  // Catch-up scan
+  catchup_hours: number
+
   // UI
+  notifications_enabled: boolean
   sound_enabled: boolean
+  notification_sound: string
   compact_mode: boolean
+
+  // Inbox sort
+  tasks_inbox_sort_direction: 'asc' | 'desc'
+  tasks_inbox_sort_by_priority: boolean
 }
 
 export type AppSettingsUpdate = Partial<AppSettings>
@@ -29,7 +38,7 @@ export type AppSettingsUpdate = Partial<AppSettings>
 export interface TgChat {
   id: string
   name: string
-  type: 'supergroup' | 'channel' | 'group' | 'user' | 'unknown'
+  type: 'supergroup' | 'channel' | 'group' | 'user' | 'saved' | 'unknown'
 }
 
 /** Info returned by GET /telegram/threads/{chat_id} */

@@ -25,6 +25,7 @@ class TaskStatus(str, enum.Enum):
 
 
 class TaskPriority(str, enum.Enum):
+    normal = "normal"
     low = "low"
     medium = "medium"
     high = "high"
@@ -53,12 +54,14 @@ class Task(Base):
     title = Column(String(500), nullable=False)
     body = Column(Text, nullable=True)
     status = Column(Enum(TaskStatus), default=TaskStatus.inbox, nullable=False)
-    priority = Column(Enum(TaskPriority), default=TaskPriority.medium, nullable=False)
+    priority = Column(Enum(TaskPriority), default=TaskPriority.normal, nullable=False)
 
     # Telegram source info
     chat_id = Column(String(100), nullable=True, index=True)
     thread_id = Column(String(100), nullable=True, index=True)
     source_message_id = Column(Integer, nullable=True)
+    sender_id = Column(String(100), nullable=True, index=True)
+    sender_username = Column(String(100), nullable=True)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=_now, nullable=False)

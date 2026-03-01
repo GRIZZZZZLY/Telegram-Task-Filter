@@ -7,6 +7,7 @@ In packaged: reads .env from APP_DATA_DIR set by Electron (user's AppData folder
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .path_utils import get_bundled_resource, get_data_dir
@@ -28,7 +29,6 @@ class Settings(BaseSettings):
     app_host: str = "127.0.0.1"
     app_port: int = 8787
     app_log_level: str = "INFO"
-    app_secret_key: str = "change_me"
 
     # ── Database ─────────────────────────────────────────────────────────
     db_url: str = f"sqlite:///{_DEFAULT_DB}"
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     tg_phone: str = ""
     tg_session_name: str = "user"
     # Primary mention handle (legacy, single). Use tg_mention_handles for multiple.
-    tg_mention_handle: str = "@igo_kravts"
+    tg_mention_handle: str = ""
     # Comma-separated mention handles e.g. "@alice,@bob" — overrides tg_mention_handle when set
     tg_mention_handles: str = ""
     tg_monitored_chat_ids: str = ""
@@ -64,14 +64,28 @@ class Settings(BaseSettings):
     # ── Noise filters ────────────────────────────────────────────────────
     filter_ignore_own: bool = True          # skip outgoing messages (msg.out)
     filter_min_text_length: int = 0         # min chars required to create a task
-    filter_strict_mentions: bool = False    # only create tasks for msgs with @mention
+    filter_strict_mentions: bool = True     # hard-locked: only create tasks for msgs with @mention
 
     # ── Auto-cleanup ─────────────────────────────────────────────────────
     cleanup_done_after_days: int = 0        # 0 = disabled
 
+    # ── Catch-up scan on startup ──────────────────────────────────────────
+    # Scans message history on startup to catch messages received while offline.
+    # 0 = disabled. Scans from midnight of current day when > 0.
+    # Messages that already have our reaction are created as status=done (not inbox).
+    catchup_hours: int = 8
+
     # ── UI preferences ───────────────────────────────────────────────────
-    sound_enabled: bool = True
+    notifications_enabled: bool = True  # show OS toast notifications
+    sound_enabled: bool = True          # play sound in notifications
+    notification_sound: str = "ding"    # sound preset: ding | double | chime | pop | ping
     compact_mode: bool = False
+
+    # ── Inbox sort order ──────────────────────────────────────────────────
+    # tasks_inbox_sort_direction: "desc" = newest first (default), "asc" = oldest first
+    tasks_inbox_sort_direction: str = "desc"
+    # tasks_inbox_sort_by_priority: when True, priority is applied before date sort
+    tasks_inbox_sort_by_priority: bool = False
 
     # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -80,26 +94,77 @@ class Settings(BaseSettings):
         raw = self.tg_mention_handles.strip() or self.tg_mention_handle.strip()
         return [h.strip() for h in raw.split(",") if h.strip()]
 
+    @field_validator("filter_strict_mentions", mode="before")
+    @classmethod
+    def _force_strict_mentions(cls, _v):
+        """Hard-lock strict mention mode regardless of .env/API input."""
+        return True
+
 
 @lru_cache
 def get_settings() -> Settings:
-    """Return singleton Settings — safe for FastAPI DI and testing."""
+    """Return singleton Settings — safe for FastAPI DI and testing.
+
+    Loads DPAPI-encrypted secrets into os.environ before constructing Settings
+    so that pydantic-settings picks them up (env vars take priority over .env).
+    """
+    # Inject DPAPI secrets into os.environ first (non-fatal, Windows-only)
+    try:
+        from .services.dpapi_service import inject_secrets_into_env
+        inject_secrets_into_env()
+    except Exception:
+        pass
     return Settings()
 
 
 def save_tg_credentials(api_id: int, api_hash: str, phone: str) -> None:
-    """Write TG credentials to .env so they persist across restarts.
+    """Persist TG credentials so they survive backend restarts.
 
-    Uses python-dotenv's set_key (installed as a pydantic-settings dependency).
-    After writing, clears the lru_cache so get_settings() reloads from disk.
+    Strategy:
+      - TG_API_ID and TG_API_HASH → Windows DPAPI encrypted blob (secrets.dpapi)
+        if DPAPI is available; plaintext .env otherwise (backward-compatible).
+      - TG_PHONE → always written to .env (not secret, needed for setup wizard).
+
+    After saving, clears lru_cache so get_settings() reloads from disk/DPAPI.
     """
-    from dotenv import set_key
+    from dotenv import set_key, unset_key
 
     env_path = str(_DATA_DIR / ".env")
-    set_key(env_path, "TG_API_ID", str(api_id))
-    set_key(env_path, "TG_API_HASH", api_hash)
+
+    # Always persist phone to .env (not sensitive)
     set_key(env_path, "TG_PHONE", phone)
-    # Reset cache so next call to get_settings() reads updated .env
+
+    try:
+        from .services.dpapi_service import is_dpapi_available, save_secrets
+
+        if is_dpapi_available():
+            # Save API credentials to DPAPI
+            save_secrets({"TG_API_ID": str(api_id), "TG_API_HASH": api_hash})
+
+            # Remove from .env (DPAPI is now the source of truth)
+            unset_key(env_path, "TG_API_ID")
+            unset_key(env_path, "TG_API_HASH")
+
+            # Inject into os.environ immediately so Settings() picks them up
+            import os as _os
+            _os.environ["TG_API_ID"] = str(api_id)
+            _os.environ["TG_API_HASH"] = api_hash
+
+        else:
+            # Fallback: plaintext .env (non-Windows / CI)
+            set_key(env_path, "TG_API_ID", str(api_id))
+            set_key(env_path, "TG_API_HASH", api_hash)
+
+    except Exception as exc:
+        # Non-fatal: fall back to plaintext .env
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "DPAPI unavailable for save_tg_credentials — using .env fallback: %s", exc
+        )
+        set_key(env_path, "TG_API_ID", str(api_id))
+        set_key(env_path, "TG_API_HASH", api_hash)
+
+    # Reset cache so next call to get_settings() reads updated env/DPAPI
     get_settings.cache_clear()
 
 

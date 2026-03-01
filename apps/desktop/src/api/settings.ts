@@ -24,3 +24,15 @@ export function getTgThreads(chatId: string): Promise<TgThread[]> {
 export function restartListener(): Promise<{ ok: boolean; message: string }> {
   return apiFetch('/telegram/restart-listener', { method: 'POST' })
 }
+
+export interface ScanHistoryResult {
+  ok: boolean
+  scanned: number
+  created: number
+  skipped_done: number
+  skipped_dup: number
+}
+
+export function scanHistory(hours: number): Promise<ScanHistoryResult> {
+  return apiFetch<ScanHistoryResult>(`/telegram/scan-history?hours=${hours}`, { method: 'POST' })
+}

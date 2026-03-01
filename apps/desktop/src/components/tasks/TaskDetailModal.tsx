@@ -1,0 +1,357 @@
+/**
+ * TaskDetailModal — полный вид задачи в модальном оверлее.
+ *
+ * Показывает:
+ *  - Полный текст сообщения (прокручиваемый)
+ *  - Кто написал (sender_username или sender_id)
+ *  - Чат / тема
+ *  - Дата и время
+ *  - Все действия (Done, Snooze, Dismiss, Reopen, Priority, Open in TG)
+ */
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  X, ExternalLink, Check, RotateCcw, Clock, ChevronDown, User,
+  MessageSquare, Hash,
+} from 'lucide-react'
+import type { Task, TaskPriority } from '@/types/task'
+import { cn } from '@/lib/utils'
+import { stripLeadingMentions } from '@/lib/text'
+
+// ── Priority config (shared style) ───────────────────────────────────────────
+
+const PRIORITY_CONFIG: Record<TaskPriority, { label: string; bar: string; badge: string; badgeBg: string }> = {
+  normal: { label: 'NORM', bar: 'bg-slate-500',   badge: 'text-slate-400',  badgeBg: 'bg-slate-500/10 border-slate-500/20' },
+  high:   { label: 'HIGH', bar: 'bg-red-500',     badge: 'text-red-400',    badgeBg: 'bg-red-500/10 border-red-500/20' },
+  medium: { label: 'MED',  bar: 'bg-amber-500',   badge: 'text-amber-400',  badgeBg: 'bg-amber-500/10 border-amber-500/20' },
+  low:    { label: 'LOW',  bar: 'bg-emerald-500', badge: 'text-emerald-400',badgeBg: 'bg-emerald-500/10 border-emerald-500/20' },
+}
+
+const PRIORITY_CYCLE: TaskPriority[] = ['normal', 'high', 'medium', 'low']
+
+// ── Snooze options ────────────────────────────────────────────────────────────
+
+function minutesUntilTomorrow9am(): number {
+  const now = new Date()
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  tomorrow.setHours(9, 0, 0, 0)
+  return Math.ceil((tomorrow.getTime() - now.getTime()) / 60_000)
+}
+
+const SNOOZE_OPTIONS = [
+  { label: '1 час',        minutes: () => 60 },
+  { label: '3 часа',       minutes: () => 180 },
+  { label: 'Завтра утром', minutes: minutesUntilTomorrow9am },
+]
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const MSK_TZ = 'Europe/Moscow'
+
+function formatFullDate(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: MSK_TZ,
+  })
+}
+
+function buildTgLink(chatId: string, messageId: number): string {
+  const num = parseInt(chatId, 10)
+  if (!isNaN(num) && num < 0) {
+    const cleanId = String(Math.abs(num)).replace(/^100/, '')
+    return `https://t.me/c/${cleanId}/${messageId}`
+  }
+  return `https://t.me/${chatId}/${messageId}`
+}
+
+// ── Props ─────────────────────────────────────────────────────────────────────
+
+interface Props {
+  task: Task | null
+  chatNames?: Map<string, string>
+  threadNames?: Map<string, string>
+  loadingId: number | null
+  onClose: () => void
+  onDone: (id: number) => void
+  onDismiss: (id: number) => void
+  onSnooze: (id: number, minutes: number) => void
+  onReopen: (id: number) => void
+  onPriorityChange: (id: number, priority: TaskPriority) => void
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export function TaskDetailModal({
+  task,
+  chatNames,
+  threadNames,
+  loadingId,
+  onClose,
+  onDone,
+  onDismiss,
+  onSnooze,
+  onReopen,
+  onPriorityChange,
+}: Props) {
+  const [snoozeOpen, setSnoozeOpen] = useState(false)
+  const snoozeRef = useRef<HTMLDivElement>(null)
+
+  // Close on Escape
+  useEffect(() => {
+    if (!task) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [task, onClose])
+
+  // Close snooze dropdown on outside click
+  useEffect(() => {
+    if (!snoozeOpen) return
+    const handler = (e: MouseEvent) => {
+      if (snoozeRef.current && !snoozeRef.current.contains(e.target as Node)) {
+        setSnoozeOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [snoozeOpen])
+
+  const handlePriorityClick = () => {
+    if (!task) return
+    if (task.status === 'done' || task.status === 'snoozed') return
+    const idx = PRIORITY_CYCLE.indexOf(task.priority)
+    const next = PRIORITY_CYCLE[(idx + 1) % PRIORITY_CYCLE.length]
+    onPriorityChange(task.id, next)
+  }
+
+  return createPortal(
+    <AnimatePresence>
+      {task && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            key="backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px]"
+            onClick={onClose}
+          />
+
+          {/* Modal panel */}
+          <motion.div
+            key="modal"
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 8 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className={cn(
+              'fixed inset-x-3 top-12 bottom-3 z-50 flex flex-col',
+              'rounded-2xl border border-border/50 bg-card shadow-2xl',
+              'overflow-hidden',
+            )}
+          >
+            {/* ── Priority accent bar ──────────────────────────────────────── */}
+            <div className={cn('h-1 w-full flex-shrink-0', PRIORITY_CONFIG[task.priority].bar)} />
+
+            {/* ── Header ──────────────────────────────────────────────────── */}
+            <div className="flex items-start gap-2 px-4 py-3 border-b border-border/30">
+              {/* Priority badge (clickable) */}
+              <button
+                onClick={handlePriorityClick}
+                disabled={task.status !== 'inbox'}
+                title={task.status === 'inbox' ? 'Сменить приоритет' : undefined}
+                className={cn(
+                  'mt-0.5 flex-shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-bold tracking-wider transition-colors',
+                  PRIORITY_CONFIG[task.priority].badge,
+                  PRIORITY_CONFIG[task.priority].badgeBg,
+                  task.status === 'inbox' && 'cursor-pointer hover:opacity-80',
+                  task.status !== 'inbox' && 'cursor-default opacity-70',
+                )}
+              >
+                {PRIORITY_CONFIG[task.priority].label}
+              </button>
+
+              {/* Title */}
+              <h2 className="flex-1 text-sm font-semibold leading-snug text-foreground">
+                {stripLeadingMentions(task.title)}
+              </h2>
+
+              {/* Close */}
+              <button
+                onClick={onClose}
+                className="flex-shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* ── Meta row: sender + chat + date ──────────────────────────── */}
+            <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-2.5 border-b border-border/20 bg-muted/20">
+              {/* Sender */}
+              {(task.sender_username || task.sender_id) && (
+                <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <User className="h-3 w-3 flex-shrink-0" />
+                  <span className="font-medium text-foreground">
+                    {task.sender_username ?? `id:${task.sender_id}`}
+                  </span>
+                </span>
+              )}
+
+              {/* Chat */}
+              {(task.chat_id || task.source_chat) && (
+                <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <MessageSquare className="h-3 w-3 flex-shrink-0" />
+                  <span>
+                    {chatNames?.get(task.chat_id || task.source_chat || '') ??
+                      (task.chat_id || task.source_chat)}
+                  </span>
+                </span>
+              )}
+
+              {/* Thread */}
+              {task.thread_id && (
+                <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <Hash className="h-3 w-3 flex-shrink-0" />
+                  <span>
+                    {threadNames?.get(`${task.chat_id}:${task.thread_id}`) ??
+                      `тема #${task.thread_id}`}
+                  </span>
+                </span>
+              )}
+
+              {/* Date */}
+              <span className="ml-auto text-[11px] text-muted-foreground">
+                {formatFullDate(task.created_at)}
+              </span>
+            </div>
+
+            {/* ── Body — full scrollable message text ─────────────────────── */}
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              {task.body ? (
+                <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">
+                  {stripLeadingMentions(task.body)}
+                </p>
+              ) : (
+                <p className="text-[13px] leading-relaxed text-foreground">
+                  {stripLeadingMentions(task.title)}
+                </p>
+              )}
+            </div>
+
+            {/* ── Actions footer ───────────────────────────────────────────── */}
+            <div className="flex flex-wrap items-center gap-2 border-t border-border/30 px-4 py-3">
+
+              {/* Done / Reopen */}
+              {task.status === 'done' ? (
+                <button
+                  onClick={() => { onReopen(task.id); onClose() }}
+                  disabled={loadingId === task.id}
+                  className="flex items-center gap-1.5 rounded-lg border border-border/50 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:opacity-50"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Вернуть в inbox
+                </button>
+              ) : task.status === 'snoozed' ? (
+                <button
+                  onClick={() => { onReopen(task.id); onClose() }}
+                  disabled={loadingId === task.id}
+                  className="flex items-center gap-1.5 rounded-lg border border-border/50 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:opacity-50"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  В inbox
+                </button>
+              ) : (
+                <button
+                  onClick={() => { onDone(task.id); onClose() }}
+                  disabled={loadingId === task.id}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-lg border border-indigo-500/30',
+                    'bg-indigo-500/10 px-3 py-1.5 text-[12px] font-medium text-indigo-400',
+                    'transition-colors hover:bg-indigo-500 hover:text-white hover:border-indigo-500',
+                    'disabled:opacity-50',
+                  )}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Done
+                </button>
+              )}
+
+              {/* Snooze — inbox only */}
+              {task.status === 'inbox' && (
+                <div className="relative" ref={snoozeRef}>
+                  <button
+                    onClick={() => setSnoozeOpen((v) => !v)}
+                    className={cn(
+                      'flex items-center gap-1 rounded-lg border border-border/50 px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors',
+                      'hover:border-border hover:text-foreground',
+                      snoozeOpen && 'border-indigo-500/50 text-indigo-400',
+                    )}
+                  >
+                    <Clock className="h-3.5 w-3.5" />
+                    Отложить
+                    <ChevronDown className={cn('h-3 w-3 transition-transform', snoozeOpen && 'rotate-180')} />
+                  </button>
+
+                  {snoozeOpen && (
+                    <div className="absolute bottom-full left-0 mb-1 min-w-[140px] rounded-lg border border-border/50 bg-card shadow-xl z-10">
+                      {SNOOZE_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.label}
+                          onClick={() => {
+                            setSnoozeOpen(false)
+                            onSnooze(task.id, opt.minutes())
+                            onClose()
+                          }}
+                          className="flex w-full items-center px-3 py-2 text-[12px] text-foreground transition-colors first:rounded-t-lg last:rounded-b-lg hover:bg-accent"
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Dismiss — inbox only */}
+              {task.status === 'inbox' && (
+                <button
+                  onClick={() => { onDismiss(task.id); onClose() }}
+                  className="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-2.5 py-1.5 text-[12px] text-red-400 transition-colors hover:bg-red-500/10"
+                >
+                  Убрать
+                </button>
+              )}
+
+              {/* Open in Telegram — push right */}
+              {task.source_message_id && (task.chat_id || task.source_chat) && (
+                <a
+                  href={buildTgLink(task.chat_id || task.source_chat || '', task.source_message_id)}
+                  className="ml-auto flex items-center gap-1.5 rounded-lg border border-border/50 px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    window.electronAPI?.openExternal(
+                      buildTgLink(task.chat_id || task.source_chat || '', task.source_message_id)
+                    )
+                  }}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  В Telegram
+                </a>
+              )}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>,
+    document.body
+  )
+}

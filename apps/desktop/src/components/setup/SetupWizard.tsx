@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Loader2, ArrowRight, KeyRound } from 'lucide-react'
+import { Loader2, ArrowRight, KeyRound, Lock } from 'lucide-react'
 import { OtpInput } from './OtpInput'
 import { AnimatedGradientBg } from '@/components/ui/AnimatedGradientBg'
 import { useSetup } from '@/hooks/useSetup'
@@ -104,19 +104,54 @@ function OtpStep({
   onSubmit,
   submitting,
   error,
+  needs2fa,
 }: {
   hint: string
-  onSubmit: (code: string) => void
+  onSubmit: (code: string, password?: string) => void
   submitting: boolean
   error: string | null
+  needs2fa: boolean
 }) {
   const [code, setCode] = useState('')
+  const [password, setPassword] = useState('')
+
+  const handleConfirm = () => {
+    if (code.length !== 5) return
+    if (needs2fa && !password.trim()) return
+    onSubmit(code, needs2fa ? password.trim() : undefined)
+  }
 
   return (
     <div className="flex flex-col items-center gap-5">
       <p className="text-center text-sm text-muted-foreground">{hint}</p>
 
-      <OtpInput value={code} onChange={setCode} disabled={submitting} />
+      <OtpInput value={code} onChange={setCode} disabled={submitting || needs2fa} />
+
+      {needs2fa && (
+        <div className="flex w-full flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
+          <div className="flex items-center gap-2">
+            <Lock className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+            <p className="text-[11px] text-amber-400 leading-relaxed">
+              Аккаунт защищён 2FA. Введите пароль Telegram.
+            </p>
+          </div>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleConfirm()}
+            placeholder="Пароль двухфакторной аутентификации"
+            autoFocus
+            className="rounded-lg border border-border/50 bg-background px-3 py-1.5 text-[13px] outline-none focus:border-amber-500"
+          />
+        </div>
+      )}
+
+      {!needs2fa && (
+        <p className="text-center text-[11px] text-muted-foreground/60">
+          💡 Если включён 2FA — пароль запросится после ввода кода
+        </p>
+      )}
 
       {error && (
         <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
@@ -125,22 +160,20 @@ function OtpStep({
       )}
 
       <button
-        onClick={() => code.length === 5 && onSubmit(code)}
-        disabled={submitting || code.length < 5}
+        onClick={handleConfirm}
+        disabled={submitting || code.length < 5 || (needs2fa && !password.trim())}
         className="flex items-center gap-2 rounded-lg bg-indigo-500 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {submitting ? (
           <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          'Подтвердить'
-        )}
+        ) : needs2fa ? 'Войти' : 'Подтвердить'}
       </button>
     </div>
   )
 }
 
 export function SetupWizard({ onComplete }: { onComplete: () => void }) {
-  const { step, hint, error, submitting, startAuth, verifyOtp } = useSetup()
+  const { step, hint, error, submitting, needs2fa, startAuth, verifyOtp } = useSetup()
 
   // Auto-redirect when done
   if (step === 'done') {
@@ -212,6 +245,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
                   onSubmit={verifyOtp}
                   submitting={submitting}
                   error={error}
+                  needs2fa={needs2fa}
                 />
               </motion.div>
             )}

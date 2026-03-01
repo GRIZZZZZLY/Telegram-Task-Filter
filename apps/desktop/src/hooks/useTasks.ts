@@ -1,10 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getTasks, markDone, reopenTask, snoozeTask, changePriority, reorderTasks } from '@/api/tasks'
-import { WS_URL } from '@/api/client'
+import { getTasks, markDone, reopenTask, snoozeTask, changePriority, reorderTasks, dismissTask, pinTask } from '@/api/tasks'
+import { getWsUrl } from '@/api/client'
 import type { Task, TabId, TaskPriority, WsEvent } from '@/types/task'
+import { playNewTaskSound } from '@/lib/sound'
 
 // TabId re-export для удобства
 export type { TabId }
+
+function normalizeTask(raw: Task | (Record<string, unknown> & { id: number })): Task {
+  const chatId = (raw as { chat_id?: string }).chat_id
+    ?? (raw as { source_chat?: string }).source_chat
+    ?? ''
+
+  return {
+    ...(raw as Task),
+    chat_id: chatId,
+    thread_id: (raw as { thread_id?: string | null }).thread_id ?? null,
+  }
+}
 
 interface UseTasksResult {
   tasks: Task[]
@@ -12,23 +25,30 @@ interface UseTasksResult {
   error: string | null
   loadingId: number | null
   pendingUndo: { id: number; title: string } | null
+  failedCommitIds: Set<number>
   handleDone: (id: number, customReply?: string) => Promise<void>
+  handleDismiss: (id: number) => Promise<void>
   handleSnooze: (id: number, minutes: number) => Promise<void>
   handleReopen: (id: number) => Promise<void>
   handleUndoDone: (id: number) => Promise<void>
   handlePriorityChange: (id: number, priority: TaskPriority) => Promise<void>
   handleReorder: (ids: number[]) => Promise<void>
+  handlePin: (id: number) => Promise<void>
   clearUndo: () => void
   refetch: () => Promise<void>
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>
 }
 
-export function useTasks(status: string): UseTasksResult {
+export function useTasks(status: string, refreshTrigger?: number): UseTasksResult {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [loadingId, setLoadingId] = useState<number | null>(null)
   const [pendingUndo, setPendingUndo] = useState<{ id: number; title: string } | null>(null)
+  const [failedCommitIds, setFailedCommitIds] = useState<Set<number>>(new Set())
+
+  // Ref tracks current pending-done task id for clearUndo (avoids stale closures)
+  const pendingUndoIdRef = useRef<number | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
 
@@ -36,7 +56,7 @@ export function useTasks(status: string): UseTasksResult {
     try {
       setError(null)
       const res = await getTasks({ status, limit: 50 })
-      setTasks(res.items)
+      setTasks(res.items.map((t) => normalizeTask(t)))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка загрузки задач')
     } finally {
@@ -44,41 +64,89 @@ export function useTasks(status: string): UseTasksResult {
     }
   }, [status])
 
-  // Начальная загрузка и при смене таба
+  // Начальная загрузка, при смене таба, и при изменении refreshTrigger
   useEffect(() => {
     setLoading(true)
     void fetchTasks()
-  }, [fetchTasks])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchTasks, refreshTrigger])
 
   // WebSocket — всегда активен для всех вкладок
   useEffect(() => {
+    let cancelled = false
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
     const connect = () => {
-      const ws = new WebSocket(WS_URL)
+      if (cancelled) return
+      const ws = new WebSocket(getWsUrl())
       wsRef.current = ws
 
       ws.onmessage = (e: MessageEvent<string>) => {
+        if (cancelled) return
         try {
           const event = JSON.parse(e.data) as WsEvent
           const task = event.data as Task | undefined
 
           if (event.type === 'task_created' && task) {
-            // Новая задача → добавить в inbox
-            if (status === 'inbox') {
-              setTasks((prev) => prev.some((t) => t.id === task.id) ? prev : [task, ...prev])
-            }
-            const title = task.title.length > 60 ? task.title.slice(0, 60) + '…' : task.title
+            const normalized = normalizeTask(task)
+            // Уведомление и звук — всегда, независимо от вкладки
+            const title = normalized.title.length > 60 ? normalized.title.slice(0, 60) + '…' : normalized.title
             window.electronAPI?.notify('🔵 Новая задача', title)
+            playNewTaskSound()
+            // Refetch вместо ручной вставки — сервер вернёт задачи в правильном порядке
+            // (учитывает настройку sort_direction, закреплённые задачи и приоритет)
+            if (status === 'inbox') {
+              void fetchTasks()
+            }
+          }
+
+          if (event.type === 'task_committed') {
+            // Backend sends { task_id: N }, not a full Task object
+            const taskId = (event.data as { task_id: number } | undefined)?.task_id
+            if (taskId == null) return
+            // Task was committed (reaction sent) — remove from inbox list
+            if (status === 'inbox') {
+              setTasks((prev) => prev.filter((t) => t.id !== taskId))
+            }
+            // Clear undo state if this was the pending task
+            if (pendingUndoIdRef.current === taskId) {
+              pendingUndoIdRef.current = null
+              setPendingUndo(null)
+            }
+            // Clear any failure flag for this task (successful commit)
+            setFailedCommitIds((prev) => {
+              if (!prev.has(taskId)) return prev
+              const next = new Set(prev)
+              next.delete(taskId)
+              return next
+            })
+          }
+
+          if (event.type === 'task_commit_failed') {
+            const taskId = (event.data as { task_id: number } | undefined)?.task_id
+            if (taskId == null) return
+            setFailedCommitIds((prev) => new Set(prev).add(taskId))
+          }
+
+          if (event.type === 'inbox_cleared' && status === 'inbox') {
+            setTasks([])
+          }
+
+          if (event.type === 'done_cleared' && status === 'done') {
+            setTasks([])
           }
 
           if (event.type === 'task_woken' && task) {
-            // Задача проснулась → убрать из snoozed, добавить в inbox
+            const normalized = normalizeTask(task)
+            // Задача проснулась → убрать из snoozed
             if (status === 'snoozed') {
-              setTasks((prev) => prev.filter((t) => t.id !== task.id))
+              setTasks((prev) => prev.filter((t) => t.id !== normalized.id))
             }
+            // В inbox — refetch чтобы задача встала на правильную позицию
             if (status === 'inbox') {
-              setTasks((prev) => prev.some((t) => t.id === task.id) ? prev : [task, ...prev])
+              void fetchTasks()
             }
-            window.electronAPI?.notify('⏰ Задача напоминает о себе', task.title.slice(0, 60))
+            window.electronAPI?.notify('⏰ Задача напоминает о себе', normalized.title.slice(0, 60))
           }
         } catch {
           // ignore parse errors
@@ -86,11 +154,16 @@ export function useTasks(status: string): UseTasksResult {
       }
 
       ws.onerror = () => ws.close()
-      ws.onclose = () => { setTimeout(connect, 3000) }
+      ws.onclose = () => {
+        if (cancelled) return
+        reconnectTimer = setTimeout(connect, 3000)
+      }
     }
 
     connect()
     return () => {
+      cancelled = true
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer)
       wsRef.current?.close()
       wsRef.current = null
     }
@@ -103,7 +176,13 @@ export function useTasks(status: string): UseTasksResult {
     setLoadingId(id)
     try {
       await markDone(id, customReply)
-      setTasks((prev) => prev.filter((t) => t.id !== id))
+      // Don't remove from list yet — card transforms into inline-undo state.
+      // If there was a different pending task, remove it from the list now.
+      if (pendingUndoIdRef.current !== null && pendingUndoIdRef.current !== id) {
+        const prevId = pendingUndoIdRef.current
+        setTasks((ts) => ts.filter((t) => t.id !== prevId))
+      }
+      pendingUndoIdRef.current = id
       setPendingUndo({ id, title: task.title })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка')
@@ -111,6 +190,17 @@ export function useTasks(status: string): UseTasksResult {
       setLoadingId(null)
     }
   }, [tasks])
+
+  const handleDismiss = useCallback(async (id: number) => {
+    // Optimistic: remove immediately
+    setTasks((prev) => prev.filter((t) => t.id !== id))
+    try {
+      await dismissTask(id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка удаления')
+      await fetchTasks()
+    }
+  }, [fetchTasks])
 
   const handleReorder = useCallback(async (ids: number[]) => {
     // Optimistic: порядок уже применён в TaskList через setTasks
@@ -149,13 +239,16 @@ export function useTasks(status: string): UseTasksResult {
   }, [])
 
   const handleUndoDone = useCallback(async (id: number) => {
+    // Task is still in local list (we never removed it), just clear pending state
+    pendingUndoIdRef.current = null
     setPendingUndo(null)
     setLoadingId(id)
     try {
       await reopenTask(id)
-      await fetchTasks()
+      // Task remains in list with original inbox status — no refetch needed
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка отмены')
+      await fetchTasks() // fallback on error
     } finally {
       setLoadingId(null)
     }
@@ -174,7 +267,28 @@ export function useTasks(status: string): UseTasksResult {
     }
   }, [fetchTasks])
 
-  const clearUndo = useCallback(() => setPendingUndo(null), [])
+  const handlePin = useCallback(async (id: number) => {
+    setLoadingId(id)
+    try {
+      await pinTask(id)
+      // Refetch to get server-sorted order (pinned tasks move to top)
+      await fetchTasks()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка закрепления')
+    } finally {
+      setLoadingId(null)
+    }
+  }, [fetchTasks])
+
+  const clearUndo = useCallback(() => {
+    // Undo window expired — now actually remove the pending-done task from the list
+    const id = pendingUndoIdRef.current
+    if (id !== null) {
+      setTasks((ts) => ts.filter((t) => t.id !== id))
+      pendingUndoIdRef.current = null
+    }
+    setPendingUndo(null)
+  }, [])
 
   return {
     tasks,
@@ -182,12 +296,15 @@ export function useTasks(status: string): UseTasksResult {
     error,
     loadingId,
     pendingUndo,
+    failedCommitIds,
     handleDone,
+    handleDismiss,
     handleSnooze,
     handleReopen,
     handleUndoDone,
     handlePriorityChange,
     handleReorder,
+    handlePin,
     clearUndo,
     refetch: fetchTasks,
     setTasks,

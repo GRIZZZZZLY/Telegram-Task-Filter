@@ -32,6 +32,36 @@ logger = logging.getLogger(__name__)
 _current_handler = None
 
 
+def _parse_thread_filter(csv: str) -> dict[str, set[int]]:
+    """Parse 'chatId:threadId' pairs into a per-chat thread filter.
+
+    Returns dict: chat_id (str) → set of allowed thread IDs (int).
+    Old flat-format entries (no colon or colon at position 0) are gracefully ignored.
+    If the CSV is empty or contains no valid pairs, returns an empty dict,
+    which means "no per-chat filter — listen to all threads".
+    """
+    result: dict[str, set[int]] = {}
+    for token in csv.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        colon_idx = token.rfind(":")
+        if colon_idx <= 0:
+            continue  # old flat format or malformed — skip
+        chat_id = token[:colon_idx]
+        thread_id_str = token[colon_idx + 1:]
+        if not chat_id or not thread_id_str:
+            continue
+        try:
+            thread_id = int(thread_id_str)
+        except ValueError:
+            continue
+        if chat_id not in result:
+            result[chat_id] = set()
+        result[chat_id].add(thread_id)
+    return result
+
+
 async def start_listener() -> None:
     """Register NewMessage handler on the active Telethon client.
 
@@ -74,11 +104,7 @@ async def start_listener() -> None:
         # ── Reload settings on every message (filter changes take effect immediately)
         s = get_settings()
         mention_handles_lower = [h.lower() for h in s.get_mention_handles()]
-        monitored_thread_ids: list[int] = [
-            int(tid.strip())
-            for tid in s.tg_monitored_thread_ids.split(",")
-            if tid.strip()
-        ]
+        thread_filter = _parse_thread_filter(s.tg_monitored_thread_ids)
 
         msg = event.message
         text: str = msg.raw_text or ""
@@ -105,8 +131,12 @@ async def start_listener() -> None:
             thread_id = getattr(msg.reply_to, "reply_to_top_id", None) or \
                         getattr(msg.reply_to, "reply_to_msg_id", None)
 
-        if monitored_thread_ids and thread_id not in monitored_thread_ids:
-            logger.debug("MSG skipped — thread %s not monitored", thread_id)
+        chat_thread_filter = thread_filter.get(chat_id)
+        if chat_thread_filter is not None and thread_id not in chat_thread_filter:
+            logger.debug(
+                "MSG skipped — thread %s not in monitored threads for chat %s",
+                thread_id, chat_id,
+            )
             return
 
         # ── Extract @mentions from message entities ────────────────────────
@@ -127,15 +157,23 @@ async def start_listener() -> None:
                         except Exception:
                             pass
 
-        logger.info(
+        logger.debug(
             "MSG | chat=%s sender=%s mentions=%s text=%.80r",
             chat_id, msg.sender_id, mentions, text,
         )
 
         # ── Noise filter: strict mentions mode ─────────────────────────────
-        if s.filter_strict_mentions and not mentions:
-            logger.debug("MSG skipped — strict mode: no @mention found")
-            return
+        if s.filter_strict_mentions:
+            if not mentions:
+                logger.debug("MSG skipped — no @mention found")
+                return
+            if mention_handles_lower:
+                mentions_lower = [m.lower() for m in mentions]
+                if not any(h in mentions_lower for h in mention_handles_lower):
+                    logger.debug(
+                        "MSG skipped — mention not in configured handles: %s", mentions
+                    )
+                    return
 
         # ── Rule evaluation (reloads YAML on each call via fresh settings) ─
         rule_engine = RuleEngine(s.rules_path)
@@ -153,6 +191,15 @@ async def start_listener() -> None:
 
         # ── Persist task ───────────────────────────────────────────────────
         title = _extract_title(text)
+
+        # Extract sender username without extra API call (may be None)
+        sender_uname: str | None = None
+        try:
+            if msg.sender and getattr(msg.sender, "username", None):
+                sender_uname = f"@{msg.sender.username}"
+        except Exception:
+            pass
+
         db = SessionLocal()
         try:
             # Deduplication: skip if a task for this message already exists
@@ -169,6 +216,8 @@ async def start_listener() -> None:
                 chat_id=chat_id,
                 thread_id=str(thread_id) if thread_id else None,
                 source_message_id=msg.id,
+                sender_id=str(msg.sender_id) if msg.sender_id else None,
+                sender_username=sender_uname,
             )
             db.add(task)
             db.commit()
@@ -190,11 +239,16 @@ async def start_listener() -> None:
             "title": task.title,
             "priority": task.priority.value,
             "status": task.status.value,
-            "source_chat": chat_id,
+            "chat_id": chat_id,
+            "source_chat": chat_id,          # legacy compat
+            "thread_id": task.thread_id,
             "source_message_id": task.source_message_id,
+            "sender_id": task.sender_id,
+            "sender_username": task.sender_username,
             "created_at": task.created_at.isoformat(),
             "committed_at": None,
             "snoozed_until": None,
+            "sort_order": task.sort_order,
         })
 
     _current_handler = _handle

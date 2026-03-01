@@ -70,3 +70,11 @@ def _run_migrations() -> None:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN custom_reply VARCHAR(500)"))
             import logging
             logging.getLogger(__name__).info("Migration: added tasks.custom_reply")
+        if "sender_id" not in existing:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN sender_id VARCHAR(100)"))
+            import logging
+            logging.getLogger(__name__).info("Migration: added tasks.sender_id")
+        if "sender_username" not in existing:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN sender_username VARCHAR(100)"))
+            import logging
+            logging.getLogger(__name__).info("Migration: added tasks.sender_username")

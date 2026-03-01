@@ -17,6 +17,35 @@ $VenvPython  = Join-Path $ApiDir '.venv\Scripts\python.exe'
 $VenvPip     = Join-Path $ApiDir '.venv\Scripts\pip.exe'
 $VenvPyInst  = Join-Path $ApiDir '.venv\Scripts\pyinstaller.exe'
 
+function Stop-BuildLocks {
+    Write-Host '  Stopping running app processes that may lock artifacts...' -ForegroundColor Gray
+    # Use Stop-Process with SilentlyContinue so missing processes do not fail the build.
+    Get-Process -Name "TG Focus Filter", "backend" -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 800
+}
+
+function Clean-ReleaseArtifacts {
+    param([string]$ReleaseDir)
+
+    if (-not (Test-Path $ReleaseDir)) {
+        return
+    }
+
+    # Remove stale intermediate outputs that are frequently involved in lock issues
+    # when NSIS/7zip packaging is re-run.
+    $pathsToRemove = @(
+        (Join-Path $ReleaseDir 'win-unpacked'),
+        (Join-Path $ReleaseDir '*.nsis.7z'),
+        (Join-Path $ReleaseDir 'builder-debug.yml'),
+        (Join-Path $ReleaseDir 'builder-effective-config.yaml')
+    )
+
+    foreach ($p in $pathsToRemove) {
+        Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Write-Host ''
 Write-Host '=======================================' -ForegroundColor Cyan
 Write-Host '  TG Focus Filter - Desktop Build'      -ForegroundColor Cyan
@@ -69,13 +98,17 @@ try {
 Write-Host '[5/5] Packaging with electron-builder...' -ForegroundColor Yellow
 Push-Location $DesktopDir
 try {
+    $ReleaseDir = Join-Path $DesktopDir 'release'
+    Stop-BuildLocks
+    Clean-ReleaseArtifacts -ReleaseDir $ReleaseDir
+
     if ($Target -eq 'portable') {
-        npx electron-builder --win --config.win.target=portable
+        npx electron-builder --win --config.win.target=portable --publish never
     } elseif ($Target -eq 'nsis') {
-        npx electron-builder --win --config.win.target=nsis
+        npx electron-builder --win --config.win.target=nsis --publish never
     } else {
         # 'all' — build both targets as defined in package.json
-        npx electron-builder --win
+        npx electron-builder --win --publish never
     }
     if ($LASTEXITCODE -ne 0) { throw 'electron-builder failed' }
 } finally { Pop-Location }

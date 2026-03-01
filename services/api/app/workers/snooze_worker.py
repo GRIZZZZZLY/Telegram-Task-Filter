@@ -70,11 +70,14 @@ async def _tick() -> None:
                 "title": task.title,
                 "priority": task.priority.value,
                 "status": task.status.value,
-                "source_chat": task.chat_id or "",
+                "chat_id": task.chat_id or "",
+                "source_chat": task.chat_id or "",   # legacy compat
+                "thread_id": task.thread_id,
                 "source_message_id": task.source_message_id,
                 "created_at": task.created_at.isoformat(),
                 "committed_at": None,
                 "snoozed_until": None,
+                "sort_order": task.sort_order,
             })
 
     finally:

@@ -36,6 +36,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setSoundEnabled: (enabled: boolean) =>
     ipcRenderer.send('app:set-sound', enabled),
 
+  /** Enable or disable OS toast notifications entirely */
+  setNotificationsEnabled: (enabled: boolean) =>
+    ipcRenderer.send('app:set-notifications', enabled),
+
+  /** Get the app version string (e.g. "0.2.0") */
+  getVersion: (): Promise<string> => ipcRenderer.invoke('app:get-version'),
+
   /** Open a URL in the system default browser (bypasses Electron window) */
   openExternal: (url: string) =>
     ipcRenderer.send('shell:open-external', url),
@@ -54,4 +61,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   /** Quit the app completely (kills the process) */
   quit: () => ipcRenderer.send('app:quit'),
+
+  /** Open the logs folder in Windows Explorer */
+  openLogsFolder: () => ipcRenderer.send('app:open-logs-folder'),
+
+  /** Show a native Electron confirmation dialog; returns true if confirmed */
+  confirm: (message: string): Promise<boolean> =>
+    ipcRenderer.invoke('dialog:confirm', message),
 })

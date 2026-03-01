@@ -1,9 +1,27 @@
+# TG Focus Filter — default rules
+#
+# Rules are evaluated in descending priority order; first match wins.
+# If no rule matches, the message is silently ignored.
+#
+# Available 'when' conditions (all optional; AND logic):
+#   mention:   "@handle"            — exact @mention match (case-insensitive)
+#   keywords:  ["todo", "urgent"]   — ANY keyword present in message text
+#   chat_id:   "-1001234567890"     — specific chat ID (string)
+#   thread_id: "173"               — specific forum thread ID (string)
+#
+# 'when: {}' or omitting 'when' means "match everything that passes listener filters".
+# The listener already applies mention/chat/thread filters from Settings —
+# use YAML rules for ADDITIONAL specificity (e.g. keyword-based priority).
+
+# Default rule: create a task for every message that passes the listener filters.
+# The listener already enforces strict-mention mode (only messages with your
+# @handle reach this point), so no additional 'mention' condition is needed here.
+# Use extra rules below this one to override priority for specific keywords / chats.
 - id: mention_me
-  name: Mention @igo_kravts
+  name: Mention me
   enabled: true
   priority: 100
-  when:
-    mention: "@igo_kravts"
+  when: {}
   then:
     create_task: true
-    priority: high
+    priority: normal

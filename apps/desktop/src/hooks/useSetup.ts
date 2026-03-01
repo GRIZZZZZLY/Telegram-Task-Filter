@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getAuthStatus, authStart, authVerify } from '@/api/auth'
+import { ApiError } from '@/api/client'
 
 export type SetupStep = 'loading' | 'credentials' | 'otp' | 'done' | 'error'
 
@@ -10,6 +11,7 @@ interface UseSetupResult {
   hint: string
   error: string | null
   submitting: boolean
+  needs2fa: boolean
   startAuth: (params: { apiId: number; apiHash: string; phone: string }) => Promise<void>
   verifyOtp: (code: string, password?: string) => Promise<void>
   reset: () => void
@@ -20,6 +22,7 @@ export function useSetup(): UseSetupResult {
   const [hint, setHint] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [needs2fa, setNeeds2fa] = useState(false)
 
   // On mount — check if already authenticated
   useEffect(() => {
@@ -72,7 +75,16 @@ export function useSetup(): UseSetupResult {
       localStorage.setItem(SETUP_KEY, '1')
       setStep('done')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Неверный код')
+      if (err instanceof ApiError && err.status === 422) {
+        // Backend signals 2FA password required — show password field, no error text
+        setNeeds2fa(true)
+        setError(null)
+      } else {
+        const detail = err instanceof ApiError
+          ? (() => { try { return (JSON.parse(err.message) as { detail?: string }).detail ?? err.message } catch { return err.message } })()
+          : (err instanceof Error ? err.message : 'Неверный код')
+        setError(detail)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -83,7 +95,8 @@ export function useSetup(): UseSetupResult {
     setStep('credentials')
     setError(null)
     setHint('')
+    setNeeds2fa(false)
   }, [])
 
-  return { step, hint, error, submitting, startAuth, verifyOtp, reset }
+  return { step, hint, error, submitting, needs2fa, startAuth, verifyOtp, reset }
 }

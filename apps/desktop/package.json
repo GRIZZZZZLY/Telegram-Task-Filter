@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "electron:preview": "electron .",
-    "electron:build": "npm run build && electron-builder"
+    "electron:build": "npm run build && electron-builder --publish never"
   },
   "build": {
     "appId": "com.tgfocusfilter.app",
@@ -27,9 +27,14 @@
         "from": "../../services/api/dist/backend",
         "to": "backend",
         "filter": ["**/*"]
+      },
+      {
+        "from": "assets/icon.ico",
+        "to": "assets/icon.ico"
       }
     ],
     "win": {
+      "icon": "assets/icon.ico",
       "target": [
         { "target": "portable", "arch": ["x64"] },
         { "target": "nsis",     "arch": ["x64"] }
@@ -42,9 +47,16 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "artifactName": "TG-Focus-Filter-${version}-setup.exe"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "GRIZZZZZLY",
+      "repo": "Telegram-Task-Filter",
+      "releaseType": "release"
     }
   },
   "dependencies": {
+    "electron-updater": "^6.3.9",
     "@radix-ui/react-slot": "^1.1.0",
     "@radix-ui/react-tabs": "^1.1.0",
     "class-variance-authority": "^0.7.0",

@@ -1,13 +1,17 @@
 """Task CRUD operations and business logic."""
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 from fastapi import HTTPException
+from sqlalchemy import case as sa_case, func
 from sqlalchemy.orm import Session
 
 from ..models import Event, EventType, Task, TaskPriority, TaskStatus
 from .telegram_service import TelegramService
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -42,13 +46,28 @@ class TaskService:
             q = q.filter(Task.thread_id == thread_id)
 
         total = q.count()
-        # Inbox: sort_order first (manual DnD order), then created_at desc for unordered
+        # Inbox: configurable sort (pin/DnD → optional priority → date direction)
         # Done/Snoozed: always newest first
         if status == TaskStatus.inbox:
-            items = (
-                q.order_by(Task.sort_order.asc().nulls_last(), Task.created_at.desc())
-                .offset(offset).limit(limit).all()
+            from ..config import get_settings
+            s = get_settings()
+
+            # Build priority expression: high=0, medium=1, low=2, normal=3
+            priority_expr = sa_case(
+                {"high": 0, "medium": 1, "low": 2},
+                value=Task.priority,
+                else_=3,
             )
+
+            order_clauses = [Task.sort_order.asc().nulls_last()]
+            if s.tasks_inbox_sort_by_priority:
+                order_clauses.append(priority_expr)
+            if s.tasks_inbox_sort_direction == "asc":
+                order_clauses.append(Task.created_at.asc())
+            else:
+                order_clauses.append(Task.created_at.desc())
+
+            items = q.order_by(*order_clauses).offset(offset).limit(limit).all()
         else:
             items = q.order_by(Task.created_at.desc()).offset(offset).limit(limit).all()
         return items, total
@@ -92,6 +111,7 @@ class TaskService:
         ))
         self.db.commit()
         self.db.refresh(task)
+        logger.info("Task marked done | id=%d title=%.60r", task.id, task.title)
         return task
 
     # ── Reopen flow ────────────────────────────────────────────────────────
@@ -141,7 +161,18 @@ class TaskService:
         now = _now()
         task.status = TaskStatus.inbox
         task.committed_at = None
+        task.custom_reply = None
         task.updated_at = now
+
+        # Delete all reaction_sent events for this task so that
+        # commit_worker can re-send the reaction on the next mark_done.
+        deleted_rs = (
+            self.db.query(Event)
+            .filter(Event.task_id == task_id, Event.type == EventType.reaction_sent)
+            .delete(synchronize_session=False)
+        )
+        if deleted_rs:
+            logger.debug("Deleted %d reaction_sent event(s) for task %d", deleted_rs, task_id)
 
         self.db.add(Event(
             task_id=task.id,
@@ -156,6 +187,7 @@ class TaskService:
         ))
         self.db.commit()
         self.db.refresh(task)
+        logger.info("Task reopened | id=%d title=%.60r", task.id, task.title)
 
         return {
             "task": task,
@@ -217,14 +249,35 @@ class TaskService:
     def reorder(self, ids: List[int]) -> None:
         """Persist manual sort order for inbox tasks.
 
-        Assigns sort_order = position index (0 = top) to each task in `ids`.
+        Assigns sort_order = 0, 1, 2, ... to each task in `ids`.
+        Pinned tasks (sort_order < 0) are skipped — their pin is preserved.
         Tasks not in the list are left unchanged.
         """
-        for position, task_id in enumerate(ids):
+        position = 0
+        for task_id in ids:
             task = self.db.get(Task, task_id)
-            if task is not None:
-                task.sort_order = position
-                task.updated_at = _now()
+            if task is None:
+                continue
+            if task.sort_order is not None and task.sort_order < 0:
+                continue  # Pinned task — preserve negative sort_order
+            task.sort_order = position
+            task.updated_at = _now()
+            position += 1
+        self.db.commit()
+
+    # ── Dismiss (delete without Telegram reaction) ─────────────────────────
+
+    def dismiss(self, task_id: int) -> None:
+        """Delete a task without sending any reaction or reply to Telegram.
+
+        Use when the task is irrelevant and no Telegram action is needed.
+
+        Raises:
+            HTTPException 404: task not found.
+        """
+        task = self._get_or_404(task_id)
+        logger.info("Task dismissed | id=%d title=%.60r", task.id, task.title)
+        self.db.delete(task)
         self.db.commit()
 
     # ── Clear done tasks ───────────────────────────────────────────────────
@@ -242,7 +295,54 @@ class TaskService:
         count = q.count()
         q.delete(synchronize_session=False)
         self.db.commit()
+        logger.info("Clear done tasks | deleted=%d older_than_days=%d", count, older_than_days)
         return count
+
+    def clear_inbox(self) -> int:
+        """Delete all tasks currently in inbox status.
+
+        Used as an emergency cleanup action when rules accidentally
+        produced too many inbox tasks.
+        Returns the number of deleted tasks.
+        """
+        q = self.db.query(Task).filter(Task.status == TaskStatus.inbox)
+        count = q.count()
+        q.delete(synchronize_session=False)
+        self.db.commit()
+        logger.info("Clear inbox tasks | deleted=%d", count)
+        return count
+
+    # ── Pin / unpin ────────────────────────────────────────────────────────
+
+    def pin_task(self, task_id: int) -> Task:
+        """Toggle pin state for an inbox task.
+
+        Pinned tasks use sort_order = -1 so they appear above all DnD-ordered
+        (sort_order >= 0) and unordered (sort_order = None) tasks.
+        Calling pin on an already-pinned task unpins it (sort_order → None).
+
+        Raises:
+            HTTPException 404: task not found.
+        """
+        task = self._get_or_404(task_id)
+        if task.sort_order is not None and task.sort_order < 0:
+            # Already pinned → unpin
+            task.sort_order = None
+            logger.info("Task unpinned | id=%d", task.id)
+        else:
+            # Pin to top (below any other negative sort_order, e.g. -2, -3...)
+            # Find the current minimum pinned sort_order and go one lower.
+            min_pinned = (
+                self.db.query(func.min(Task.sort_order))
+                .filter(Task.status == TaskStatus.inbox, Task.sort_order < 0)
+                .scalar()
+            )
+            task.sort_order = (min_pinned - 1) if min_pinned is not None else -1
+            logger.info("Task pinned | id=%d sort_order=%d", task.id, task.sort_order)
+        task.updated_at = _now()
+        self.db.commit()
+        self.db.refresh(task)
+        return task
 
     # ── Helpers ────────────────────────────────────────────────────────────
 

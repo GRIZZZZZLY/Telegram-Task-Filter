@@ -3,7 +3,7 @@
  *
  * Sections:
  *  1. Telegram  — mention handles, monitored chats/threads
- *  2. Filters   — ignore own, min text length, strict mentions
+ *  2. Filters   — ignore own, min text length
  *  3. Reaction  — reaction emoji, reply text, commit delay
  *  4. Cleanup   — auto-delete done tasks, clear all button
  *  5. UI        — sound toggle, compact mode
@@ -11,12 +11,33 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   ArrowLeft, Loader2, RefreshCw, Plus, X,
-  MessageCircle, Filter, ThumbsUp, Trash2, Monitor, RotateCcw,
+  MessageCircle, Filter, ThumbsUp, Trash2, Monitor, RotateCcw, History,
+  Terminal, FolderOpen, ShieldCheck,
 } from 'lucide-react'
-import { getSettings, updateSettings, getTgChats, getTgThreads, restartListener } from '@/api/settings'
-import { clearDoneTasks } from '@/api/tasks'
-import type { AppSettings, TgChat, TgThread } from '@/types/settings'
+import { getSettings, updateSettings, restartListener, scanHistory } from '@/api/settings'
+import { fetchLogs } from '@/api/logs'
+import type { LogLevel, LogsResponse } from '@/api/logs'
+import { parseLogLines } from '@/lib/log-parser'
+import type { FriendlyEntry } from '@/lib/log-parser'
+import { setSoundEnabled, setNotificationSound, playPreviewSound, setCustomSoundPath, getCustomSoundPath, SOUND_PRESETS } from '@/lib/sound'
+import type { SoundPreset } from '@/lib/sound'
+import type { ScanHistoryResult } from '@/api/settings'
+import { clearDoneTasks, clearInboxTasks } from '@/api/tasks'
+import { setPin } from '@/api/pin'
+import { apiFetch } from '@/api/client'
+import { getLockTimeoutMinutes, setLockTimeoutMinutes } from '@/hooks/usePinGuard'
+import type { AppSettings } from '@/types/settings'
+import { ThreadSelector } from './ThreadSelector'
 import { cn } from '@/lib/utils'
+import { nativeConfirm } from '@/lib/dialog'
+
+interface GuardCheckResult {
+  ok: boolean
+  checked: number
+  ok_count: number
+  rolled_back: number
+  skipped: number
+}
 
 // ── Valid Telegram reaction emojis ────────────────────────────────────────────
 const REACTION_OPTIONS = ['👍', '❤', '🔥', '🎉', '👏', '🤝', '💯', '✍']
@@ -79,6 +100,8 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
     </div>
   )
 }
+
+
 
 // ── Multi-tag input ───────────────────────────────────────────────────────────
 
@@ -144,112 +167,55 @@ function TagInput({
   )
 }
 
-// ── Chat selector ─────────────────────────────────────────────────────────────
-
-function ChatSelector({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (v: string) => void
-}) {
-  const [chats, setChats] = useState<TgChat[]>([])
-  const [loading, setLoading] = useState(false)
-
-  const selected = value.split(',').map((s) => s.trim()).filter(Boolean)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const list = await getTgChats()
-      setChats(list)
-    } catch {
-      // keep empty
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => { void load() }, [load])
-
-  const toggle = (id: string) => {
-    const next = selected.includes(id)
-      ? selected.filter((x) => x !== id)
-      : [...selected, id]
-    onChange(next.join(','))
-  }
-
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between">
-        <p className="text-[11px] text-muted-foreground">
-          {selected.length > 0 ? `Выбрано: ${selected.length}` : 'Не выбрано — слушать все'}
-        </p>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-        >
-          {loading
-            ? <Loader2 className="h-3 w-3 animate-spin" />
-            : <RefreshCw className="h-3 w-3" />}
-          Обновить
-        </button>
-      </div>
-
-      {chats.length === 0 && !loading && (
-        <p className="text-[11px] text-muted-foreground">
-          Нет данных — Telegram должен быть подключён
-        </p>
-      )}
-
-      <div className="flex max-h-40 flex-col gap-0.5 overflow-y-auto">
-        {chats.map((chat) => {
-          const isSelected = selected.includes(chat.id)
-          return (
-            <button
-              key={chat.id}
-              onClick={() => toggle(chat.id)}
-              className={cn(
-                'flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] transition-colors',
-                isSelected
-                  ? 'bg-indigo-500/20 text-indigo-300'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-              )}
-            >
-              <span className={cn(
-                'h-4 w-4 flex-shrink-0 rounded border text-center text-[10px] leading-[14px]',
-                isSelected ? 'border-indigo-400 bg-indigo-500 text-white' : 'border-border',
-              )}>
-                {isSelected ? '✓' : ''}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{chat.name}</span>
-              <span className="text-[10px] text-muted-foreground/60">{chat.type}</span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface Props {
   onClose: () => void
+  pinSet?: boolean
+  onPinChanged?: () => void
+  /** Called after a successful save — lets parent refresh the task list */
+  onSaved?: () => void
 }
 
-export function SettingsScreen({ onClose }: Props) {
+export function SettingsScreen({ onClose, pinSet, onPinChanged, onSaved }: Props) {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [restarting, setRestarting] = useState(false)
   const [clearingDone, setClearingDone] = useState(false)
+  const [clearingInbox, setClearingInbox] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
-  const [threads, setThreads] = useState<TgThread[]>([])
-  const [loadingThreads, setLoadingThreads] = useState(false)
-  const [threadsLoaded, setThreadsLoaded] = useState(false)
-  const [threadsError, setThreadsError] = useState<string | null>(null)
+
+  const [scanning, setScanning] = useState(false)
+  const [scanResult, setScanResult] = useState<ScanHistoryResult | null>(null)
+  const [scanHours, setScanHours] = useState(8)
+  const [scanError, setScanError] = useState<string | null>(null)
+  const [guardChecking, setGuardChecking] = useState(false)
+  const [guardResult, setGuardResult] = useState<GuardCheckResult | null>(null)
+  const [guardError, setGuardError] = useState<string | null>(null)
+  const [appVersion, setAppVersion] = useState<string | null>(null)
+
+  // Logs state
+  const [logsData, setLogsData] = useState<LogsResponse | null>(null)
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [logsError, setLogsError] = useState<string | null>(null)
+  const [logsLevel, setLogsLevel] = useState<LogLevel>('ALL')
+  const [logsLines, setLogsLines] = useState(200)
+  const [logsMode, setLogsMode] = useState<'friendly' | 'raw'>('friendly')
+
+  // PIN / Security state
+  const [pinCurrentInput, setPinCurrentInput] = useState('')
+  const [pinNewInput, setPinNewInput] = useState('')
+  const [pinConfirmInput, setPinConfirmInput] = useState('')
+  const [pinSaving, setPinSaving] = useState(false)
+  const [pinError, setPinError] = useState<string | null>(null)
+  const [pinSuccess, setPinSuccess] = useState<string | null>(null)
+  const [lockMinutes, setLockMinutes] = useState(() => getLockTimeoutMinutes())
+
+  // Load app version once
+  useEffect(() => {
+    void window.electronAPI?.getVersion().then(setAppVersion)
+  }, [])
 
   const loadSettings = useCallback(() => {
     setLoadError(null)
@@ -264,6 +230,8 @@ export function SettingsScreen({ onClose }: Props) {
 
   useEffect(() => { loadSettings() }, [loadSettings])
 
+
+
   const patch = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings((prev) => prev ? { ...prev, [key]: value } : prev)
   }, [])
@@ -276,12 +244,13 @@ export function SettingsScreen({ onClose }: Props) {
       setSettings(updated)
       setSavedFlash(true)
       setTimeout(() => setSavedFlash(false), 1500)
+      onSaved?.()
     } catch (err) {
       console.error('Failed to save settings:', err)
     } finally {
       setSaving(false)
     }
-  }, [settings])
+  }, [settings, onSaved])
 
   /** Save settings AND restart the Telethon listener (for chat/thread changes) */
   const saveAndRestart = useCallback(async () => {
@@ -293,38 +262,70 @@ export function SettingsScreen({ onClose }: Props) {
       await restartListener()
       setSavedFlash(true)
       setTimeout(() => setSavedFlash(false), 2000)
+      onSaved?.()
     } catch (err) {
       console.error('Failed to save & restart:', err)
     } finally {
       setRestarting(false)
     }
-  }, [settings])
+  }, [settings, onSaved])
 
-  /** Load threads for the first selected chat */
-  const loadThreads = useCallback(async () => {
-    if (!settings) return
-    const firstChat = settings.tg_monitored_chat_ids.split(',').map(s => s.trim()).filter(Boolean)[0]
-    if (!firstChat) {
-      setThreadsError('Сначала выберите хотя бы один чат')
-      return
-    }
-    setLoadingThreads(true)
-    setThreadsError(null)
+
+
+  const handleScanHistory = useCallback(async () => {
+    setScanning(true)
+    setScanResult(null)
+    setScanError(null)
     try {
-      const list = await getTgThreads(firstChat)
-      setThreads(list)
-      setThreadsLoaded(true)
+      const result = await scanHistory(scanHours)
+      setScanResult(result)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      setThreadsError(msg)
-      setThreads([])
+      setScanError(msg)
     } finally {
-      setLoadingThreads(false)
+      setScanning(false)
     }
-  }, [settings])
+  }, [scanHours])
+
+  const handleGuardCheck = useCallback(async () => {
+    setGuardChecking(true)
+    setGuardResult(null)
+    setGuardError(null)
+    try {
+      const res = await apiFetch<GuardCheckResult>('/telegram/guard-check?hours=72&batch=300', {
+        method: 'POST',
+      })
+      setGuardResult(res)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setGuardError(msg)
+    } finally {
+      setGuardChecking(false)
+    }
+  }, [])
+
+  const handleLoadLogs = useCallback(async () => {
+    setLogsLoading(true)
+    setLogsError(null)
+    try {
+      // Friendly mode: load 300 raw lines (parser discards noise, needs headroom)
+      // Raw mode: use user-selected lines + level
+      const res = await fetchLogs(
+        logsMode === 'friendly' ? 300 : logsLines,
+        logsMode === 'friendly' ? 'ALL' : logsLevel,
+      )
+      setLogsData(res)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setLogsError(msg)
+    } finally {
+      setLogsLoading(false)
+    }
+  }, [logsLines, logsLevel, logsMode])
 
   const handleClearDone = useCallback(async () => {
-    if (!confirm('Удалить все выполненные задачи?')) return
+    const ok = await nativeConfirm('Удалить все выполненные задачи?')
+    if (!ok) return
     setClearingDone(true)
     try {
       const res = await clearDoneTasks()
@@ -336,13 +337,38 @@ export function SettingsScreen({ onClose }: Props) {
     }
   }, [])
 
+  const handleClearInbox = useCallback(async () => {
+    const ok = await nativeConfirm(
+      'Очистить ВСЕ задачи во вкладке Inbox?\n\nЭто удалит только локальные задачи в приложении (без действий в Telegram).'
+    )
+    if (!ok) return
+
+    setClearingInbox(true)
+    try {
+      const res = await clearInboxTasks()
+      alert(`Удалено ${res.deleted} задач из inbox`)
+    } catch {
+      alert('Ошибка очистки inbox')
+    } finally {
+      setClearingInbox(false)
+    }
+  }, [])
+
+
+
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
       <div
-        className="flex h-11 flex-shrink-0 items-center gap-2 border-b border-border/50 bg-background/60 pl-3 pr-[120px] backdrop-blur-md"
+        className="relative flex h-11 flex-shrink-0 items-center gap-2 border-b border-border/50 bg-background/60 pl-3 pr-[120px] backdrop-blur-md"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
+        {/* no-drag cutout for WindowControls zone (right 120px) — same pattern as TopBar */}
+        <div
+          className="absolute right-0 top-0 h-full w-[120px]"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        />
+
         <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button
             onClick={onClose}
@@ -414,88 +440,25 @@ export function SettingsScreen({ onClose }: Props) {
           {/* ── 1. Telegram ─────────────────────────────────────────────── */}
           <Section icon={<MessageCircle className="h-4 w-4" />} title="Telegram">
             <div>
-              <p className="mb-1.5 text-[12px] text-muted-foreground">Теги упоминания</p>
+              <p className="mb-0.5 text-[12px] text-muted-foreground">Мой Telegram handle</p>
+              <p className="mb-1.5 text-[11px] text-muted-foreground/60">
+                Задачи создаются только для сообщений, где упомянут ваш @тег
+              </p>
               <TagInput
                 value={settings.tg_mention_handles}
                 onChange={(v) => patch('tg_mention_handles', v)}
-                placeholder="@тег"
+                placeholder="@username"
               />
             </div>
 
             <div>
-              <p className="mb-1.5 text-[12px] text-muted-foreground">Отслеживаемые чаты</p>
-              <ChatSelector
-                value={settings.tg_monitored_chat_ids}
-                onChange={(v) => patch('tg_monitored_chat_ids', v)}
+              <p className="mb-1.5 text-[12px] text-muted-foreground">Отслеживаемые чаты и ветки</p>
+              <ThreadSelector
+                monitoredChatIds={settings.tg_monitored_chat_ids}
+                monitoredThreadIds={settings.tg_monitored_thread_ids}
+                onChatIdsChange={(v) => patch('tg_monitored_chat_ids', v)}
+                onThreadIdsChange={(v) => patch('tg_monitored_thread_ids', v)}
               />
-            </div>
-
-            {/* Thread selector — loads topics of the first selected chat */}
-            <div>
-              <div className="mb-1.5 flex items-center justify-between">
-                <p className="text-[12px] text-muted-foreground">Ветки / темы (опционально)</p>
-                <button
-                  onClick={loadThreads}
-                  disabled={loadingThreads}
-                  className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-                >
-                  {loadingThreads
-                    ? <Loader2 className="h-3 w-3 animate-spin" />
-                    : <RefreshCw className="h-3 w-3" />}
-                  Загрузить
-                </button>
-              </div>
-
-              {threadsError && (
-                <p className="rounded-lg bg-red-500/10 px-2 py-1.5 text-[11px] text-red-400">
-                  {threadsError}
-                </p>
-              )}
-              {!threadsError && !threadsLoaded ? (
-                <p className="text-[11px] text-muted-foreground">
-                  Нажмите «Загрузить» чтобы получить ветки первого выбранного чата.<br />
-                  Оставьте пустым — слушать все ветки.
-                </p>
-              ) : !threadsError && threadsLoaded && threads.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground">
-                  Чат не является форумом или тем нет. Слушаем все сообщения.
-                </p>
-              ) : (
-                <div className="flex flex-col gap-0.5">
-                  {threads.map((thread) => {
-                    const selected = settings.tg_monitored_thread_ids
-                      .split(',').map(s => s.trim()).filter(Boolean)
-                    const isSelected = selected.includes(thread.id)
-                    const toggle = () => {
-                      const next = isSelected
-                        ? selected.filter(x => x !== thread.id)
-                        : [...selected, thread.id]
-                      patch('tg_monitored_thread_ids', next.join(','))
-                    }
-                    return (
-                      <button
-                        key={thread.id}
-                        onClick={toggle}
-                        className={cn(
-                          'flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] transition-colors',
-                          isSelected
-                            ? 'bg-indigo-500/20 text-indigo-300'
-                            : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                        )}
-                      >
-                        <span className={cn(
-                          'h-4 w-4 flex-shrink-0 rounded border text-center text-[10px] leading-[14px]',
-                          isSelected ? 'border-indigo-400 bg-indigo-500 text-white' : 'border-border',
-                        )}>
-                          {isSelected ? '✓' : ''}
-                        </span>
-                        <span className="truncate">{thread.name}</span>
-                        <span className="ml-auto text-[10px] text-muted-foreground/50">#{thread.id}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
             </div>
 
             {/* Hint about restart */}
@@ -512,12 +475,6 @@ export function SettingsScreen({ onClose }: Props) {
                 onChange={(v) => patch('filter_ignore_own', v)}
               />
             </Row>
-            <Row label="Только сообщения с упоминанием" hint="Игнорировать без @тега">
-              <Toggle
-                checked={settings.filter_strict_mentions}
-                onChange={(v) => patch('filter_strict_mentions', v)}
-              />
-            </Row>
             <Row label="Минимальная длина текста" hint={`Сейчас: ${settings.filter_min_text_length} симв.`}>
               <input
                 type="number"
@@ -526,6 +483,40 @@ export function SettingsScreen({ onClose }: Props) {
                 value={settings.filter_min_text_length}
                 onChange={(e) => patch('filter_min_text_length', Number(e.target.value))}
                 className="w-16 rounded-md border border-border/50 bg-background px-2 py-1 text-[12px] text-center outline-none focus:border-indigo-500"
+              />
+            </Row>
+
+            <Row label="Порядок задач в inbox">
+              <div className="flex overflow-hidden rounded-md border border-border/50">
+                <button
+                  onClick={() => patch('tasks_inbox_sort_direction', 'desc')}
+                  className={cn(
+                    'border-r border-border/50 px-2.5 py-1 text-[11px] transition-colors',
+                    settings.tasks_inbox_sort_direction !== 'asc'
+                      ? 'bg-indigo-500/20 text-indigo-400'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  Новые сверху
+                </button>
+                <button
+                  onClick={() => patch('tasks_inbox_sort_direction', 'asc')}
+                  className={cn(
+                    'px-2.5 py-1 text-[11px] transition-colors',
+                    settings.tasks_inbox_sort_direction === 'asc'
+                      ? 'bg-indigo-500/20 text-indigo-400'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  Новые снизу
+                </button>
+              </div>
+            </Row>
+
+            <Row label="Высокий приоритет выше" hint="Сначала HIGH, потом MED, LOW, NORM">
+              <Toggle
+                checked={settings.tasks_inbox_sort_by_priority}
+                onChange={(v) => patch('tasks_inbox_sort_by_priority', v)}
               />
             </Row>
           </Section>
@@ -574,7 +565,7 @@ export function SettingsScreen({ onClose }: Props) {
               <input
                 type="range"
                 min={0}
-                max={30}
+                max={60}
                 value={settings.done_commit_delay_seconds}
                 onChange={(e) => patch('done_commit_delay_seconds', Number(e.target.value))}
                 className="w-24 accent-indigo-500"
@@ -607,19 +598,355 @@ export function SettingsScreen({ onClose }: Props) {
                 Очистить
               </button>
             </Row>
+            <Row label="Аварийная очистка inbox" hint="Удалит только локальные inbox-задачи">
+              <button
+                onClick={handleClearInbox}
+                disabled={clearingInbox}
+                className="flex items-center gap-1 rounded-lg border border-amber-500/30 px-3 py-1 text-[12px] text-amber-400 transition-colors hover:bg-amber-500/10 disabled:opacity-50"
+              >
+                {clearingInbox ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                Очистить inbox
+              </button>
+            </Row>
           </Section>
 
-          {/* ── 5. UI ────────────────────────────────────────────────────── */}
+          {/* ── 5. Catch-up scan ────────────────────────────────────────── */}
+          <Section icon={<History className="h-4 w-4" />} title="Сканирование истории">
+            <Row
+              label="Авто-скан при запуске"
+              hint={settings.catchup_hours === 0 ? 'Выключено' : `Последние ${settings.catchup_hours} ч`}
+            >
+              <input
+                type="number"
+                min={0}
+                max={168}
+                value={settings.catchup_hours}
+                onChange={(e) => patch('catchup_hours', Number(e.target.value))}
+                className="w-16 rounded-md border border-border/50 bg-background px-2 py-1 text-[12px] text-center outline-none focus:border-indigo-500"
+              />
+            </Row>
+
+            <div className="flex flex-col gap-2">
+              <p className="text-[12px] text-muted-foreground">Ручной скан истории</p>
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] text-muted-foreground">За последние</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={168}
+                  value={scanHours}
+                  onChange={(e) => setScanHours(Math.max(1, Math.min(168, Number(e.target.value))))}
+                  className="w-16 rounded-md border border-border/50 bg-background px-2 py-1 text-[12px] text-center outline-none focus:border-indigo-500"
+                />
+                <span className="text-[12px] text-muted-foreground">ч</span>
+                <button
+                  onClick={handleScanHistory}
+                  disabled={scanning}
+                  className="flex items-center gap-1.5 rounded-lg border border-indigo-500/30 px-3 py-1 text-[12px] text-indigo-400 transition-colors hover:bg-indigo-500/10 disabled:opacity-50"
+                >
+                  {scanning
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <History className="h-3 w-3" />}
+                  Сканировать
+                </button>
+              </div>
+
+              {scanResult && (
+                <div className={cn(
+                  'rounded-lg px-3 py-2 text-[11px]',
+                  scanResult.ok ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400',
+                )}>
+                  {scanResult.ok
+                    ? `Просмотрено: ${scanResult.scanned} · Создано: ${scanResult.created} · Уже выполнено: ${scanResult.skipped_done} · Дубли: ${scanResult.skipped_dup}`
+                    : 'Ошибка сканирования'}
+                </div>
+              )}
+              {scanError && (
+                <div className="rounded-lg bg-red-500/10 px-3 py-2 text-[11px] text-red-400">
+                  Ошибка: {scanError}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-2 rounded-lg border border-border/40 bg-background/30 p-2.5">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-[12px] text-muted-foreground">Проверка guard</p>
+                <button
+                  onClick={handleGuardCheck}
+                  disabled={guardChecking}
+                  className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 px-3 py-1 text-[12px] text-amber-400 transition-colors hover:bg-amber-500/10 disabled:opacity-50"
+                >
+                  {guardChecking
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <RotateCcw className="h-3 w-3" />}
+                  Guard
+                </button>
+              </div>
+
+              <p className="text-[11px] text-muted-foreground">
+                Что делает: проверяет, что реакции/ответы стоят только на сообщениях с твоим тегом; неверные реакции снимает и удаляет наш reply.
+              </p>
+
+              {guardResult && (
+                <div className="mt-2 rounded-lg bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-400">
+                  Проверено: {guardResult.checked} · Ок: {guardResult.ok_count} · Откат: {guardResult.rolled_back} · Пропущено: {guardResult.skipped}
+                </div>
+              )}
+              {guardError && (
+                <div className="mt-2 rounded-lg bg-red-500/10 px-3 py-2 text-[11px] text-red-400">
+                  Ошибка guard: {guardError}
+                </div>
+              )}
+            </div>
+          </Section>
+
+          {/* ── 6. Безопасность ──────────────────────────────────────── */}
+          <Section icon={<ShieldCheck className="h-4 w-4" />} title="Безопасность">
+            {pinSet ? (
+              <>
+                <Row label="PIN-код" hint="Защита доступа к приложению и Telegram-сессии">
+                  <span className="rounded-md bg-green-500/10 px-2 py-0.5 text-[11px] text-green-400">
+                    Установлен
+                  </span>
+                </Row>
+
+                {/* Change PIN */}
+                <div className="space-y-2 rounded-lg bg-muted/30 p-3">
+                  <p className="text-[12px] font-medium text-foreground">Сменить PIN</p>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="Текущий PIN"
+                    value={pinCurrentInput}
+                    onChange={(e) => {
+                      setPinCurrentInput(e.target.value.replace(/\D/g, '').slice(0, 6))
+                      setPinError(null)
+                      setPinSuccess(null)
+                    }}
+                    className="w-full rounded-md border border-border/50 bg-background px-3 py-1.5 text-[12px] text-foreground outline-none focus:border-indigo-500"
+                  />
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="Новый PIN (4-6 цифр)"
+                    value={pinNewInput}
+                    onChange={(e) => {
+                      setPinNewInput(e.target.value.replace(/\D/g, '').slice(0, 6))
+                      setPinError(null)
+                      setPinSuccess(null)
+                    }}
+                    className="w-full rounded-md border border-border/50 bg-background px-3 py-1.5 text-[12px] text-foreground outline-none focus:border-indigo-500"
+                  />
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="Повторите новый PIN"
+                    value={pinConfirmInput}
+                    onChange={(e) => {
+                      setPinConfirmInput(e.target.value.replace(/\D/g, '').slice(0, 6))
+                      setPinError(null)
+                      setPinSuccess(null)
+                    }}
+                    className="w-full rounded-md border border-border/50 bg-background px-3 py-1.5 text-[12px] text-foreground outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    disabled={pinSaving || pinNewInput.length < 4 || !pinCurrentInput}
+                    onClick={async () => {
+                      if (pinNewInput !== pinConfirmInput) {
+                        setPinError('Новый PIN не совпадает с подтверждением')
+                        return
+                      }
+                      setPinSaving(true)
+                      setPinError(null)
+                      try {
+                        await setPin(pinNewInput, pinCurrentInput)
+                        setPinSuccess('PIN изменён')
+                        setPinCurrentInput('')
+                        setPinNewInput('')
+                        setPinConfirmInput('')
+                        onPinChanged?.()
+                      } catch {
+                        setPinError('Неверный текущий PIN')
+                      } finally {
+                        setPinSaving(false)
+                      }
+                    }}
+                    className="rounded-md bg-indigo-500 px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-indigo-600 disabled:opacity-40"
+                  >
+                    {pinSaving ? 'Сохранение...' : 'Сменить PIN'}
+                  </button>
+                  {pinError && <p className="text-[11px] text-red-400">{pinError}</p>}
+                  {pinSuccess && <p className="text-[11px] text-green-400">{pinSuccess}</p>}
+                </div>
+              </>
+            ) : (
+              <>
+                <Row label="PIN-код" hint="Защита доступа к приложению и Telegram-сессии">
+                  <span className="rounded-md bg-yellow-500/10 px-2 py-0.5 text-[11px] text-yellow-400">
+                    Не установлен
+                  </span>
+                </Row>
+
+                {/* Set PIN */}
+                <div className="space-y-2 rounded-lg bg-muted/30 p-3">
+                  <p className="text-[12px] font-medium text-foreground">Установить PIN</p>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="PIN (4-6 цифр)"
+                    value={pinNewInput}
+                    onChange={(e) => {
+                      setPinNewInput(e.target.value.replace(/\D/g, '').slice(0, 6))
+                      setPinError(null)
+                      setPinSuccess(null)
+                    }}
+                    className="w-full rounded-md border border-border/50 bg-background px-3 py-1.5 text-[12px] text-foreground outline-none focus:border-indigo-500"
+                  />
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="Повторите PIN"
+                    value={pinConfirmInput}
+                    onChange={(e) => {
+                      setPinConfirmInput(e.target.value.replace(/\D/g, '').slice(0, 6))
+                      setPinError(null)
+                      setPinSuccess(null)
+                    }}
+                    className="w-full rounded-md border border-border/50 bg-background px-3 py-1.5 text-[12px] text-foreground outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    disabled={pinSaving || pinNewInput.length < 4}
+                    onClick={async () => {
+                      if (pinNewInput !== pinConfirmInput) {
+                        setPinError('PIN не совпадает с подтверждением')
+                        return
+                      }
+                      setPinSaving(true)
+                      setPinError(null)
+                      try {
+                        await setPin(pinNewInput)
+                        setPinSuccess('PIN установлен! При следующем запуске потребуется ввод PIN')
+                        setPinNewInput('')
+                        setPinConfirmInput('')
+                        onPinChanged?.()
+                      } catch {
+                        setPinError('Ошибка установки PIN')
+                      } finally {
+                        setPinSaving(false)
+                      }
+                    }}
+                    className="rounded-md bg-indigo-500 px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-indigo-600 disabled:opacity-40"
+                  >
+                    {pinSaving ? 'Сохранение...' : 'Установить PIN'}
+                  </button>
+                  {pinError && <p className="text-[11px] text-red-400">{pinError}</p>}
+                  {pinSuccess && <p className="text-[11px] text-green-400">{pinSuccess}</p>}
+                </div>
+              </>
+            )}
+
+            <Row label="Автоблокировка" hint="Через сколько минут без действий запрашивать PIN (0 = выкл)">
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0}
+                  max={30}
+                  step={1}
+                  value={lockMinutes}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10)
+                    setLockMinutes(v)
+                    setLockTimeoutMinutes(v)
+                  }}
+                  className="h-1.5 w-24 cursor-pointer accent-indigo-500"
+                />
+                <span className="min-w-[3rem] text-right text-[12px] text-muted-foreground">
+                  {lockMinutes === 0 ? 'Выкл' : `${lockMinutes} мин`}
+                </span>
+              </div>
+            </Row>
+          </Section>
+
+          {/* ── 7. UI ────────────────────────────────────────────────────── */}
           <Section icon={<Monitor className="h-4 w-4" />} title="Внешний вид">
-            <Row label="Звук уведомлений">
+            <Row label="Системные уведомления" hint="Всплывающие тосты Windows">
+              <Toggle
+                checked={settings.notifications_enabled}
+                onChange={(v) => {
+                  patch('notifications_enabled', v)
+                  window.electronAPI?.setNotificationsEnabled(v)
+                }}
+              />
+            </Row>
+            <Row label="Звук уведомлений" hint="Только если уведомления включены">
               <Toggle
                 checked={settings.sound_enabled}
                 onChange={(v) => {
                   patch('sound_enabled', v)
-                  window.electronAPI?.setSoundEnabled(v)
+                  setSoundEnabled(v)
+                  // Electron notification stays silent — sound handled in renderer
+                  window.electronAPI?.setSoundEnabled(false)
                 }}
               />
             </Row>
+            {settings.sound_enabled && (
+              <Row label="Пресет звука">
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={settings.notification_sound}
+                    onChange={(e) => {
+                      const preset = e.target.value as SoundPreset
+                      patch('notification_sound', preset)
+                      setNotificationSound(preset)
+                    }}
+                    className="rounded-md border border-border/50 bg-background px-2 py-1 text-[12px] text-foreground outline-none focus:border-indigo-500"
+                  >
+                    {(Object.entries(SOUND_PRESETS) as [SoundPreset, typeof SOUND_PRESETS[SoundPreset]][]).map(
+                      ([key, meta]) => (
+                        <option key={key} value={key}>
+                          {meta.label} — {meta.description}
+                        </option>
+                      )
+                    )}
+                  </select>
+                  <button
+                    onClick={() => playPreviewSound(settings.notification_sound as SoundPreset)}
+                    title="Проиграть выбранный звук"
+                    className="rounded-md border border-border/50 px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+                  >
+                    ▶
+                  </button>
+                </div>
+              </Row>
+            )}
+            {settings.sound_enabled && settings.notification_sound === 'custom' && (
+              <Row label="Путь к файлу" hint="MP3 или OGG, например: /sounds/my.mp3">
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    defaultValue={getCustomSoundPath() ?? ''}
+                    placeholder="/sounds/custom.mp3"
+                    onBlur={(e) => {
+                      const val = e.target.value.trim() || null
+                      setCustomSoundPath(val)
+                    }}
+                    className="w-48 rounded-md border border-border/50 bg-background px-2 py-1 text-[12px] text-foreground outline-none focus:border-indigo-500 placeholder:text-muted-foreground/40"
+                  />
+                  <button
+                    onClick={() => playPreviewSound('custom')}
+                    title="Проиграть кастомный звук"
+                    className="rounded-md border border-border/50 px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+                  >
+                    ▶
+                  </button>
+                </div>
+              </Row>
+            )}
             <Row label="Компактный режим" hint="Меньше деталей, больше задач">
               <Toggle
                 checked={settings.compact_mode}
@@ -627,6 +954,181 @@ export function SettingsScreen({ onClose }: Props) {
               />
             </Row>
           </Section>
+
+          {/* ── 7. Диагностика ──────────────────────────────────────────── */}
+          <Section icon={<Terminal className="h-4 w-4" />} title="Диагностика">
+
+            {/* ── Controls row ── */}
+            <div className="flex flex-wrap items-center gap-2">
+
+              {/* Mode toggle: Понятный / Технический */}
+              <div className="flex overflow-hidden rounded-lg border border-border/50 text-[12px]">
+                <button
+                  onClick={() => setLogsMode('friendly')}
+                  className={cn(
+                    'px-2.5 py-1 transition-colors',
+                    logsMode === 'friendly'
+                      ? 'bg-indigo-500/20 text-indigo-400'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  Понятный
+                </button>
+                <button
+                  onClick={() => setLogsMode('raw')}
+                  className={cn(
+                    'border-l border-border/50 px-2.5 py-1 transition-colors',
+                    logsMode === 'raw'
+                      ? 'bg-indigo-500/20 text-indigo-400'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  Технический
+                </button>
+              </div>
+
+              {/* Raw-only controls */}
+              {logsMode === 'raw' && (
+                <>
+                  <select
+                    value={logsLevel}
+                    onChange={(e) => setLogsLevel(e.target.value as LogLevel)}
+                    className="rounded-md border border-border/50 bg-background px-2 py-1 text-[12px] text-foreground outline-none focus:border-indigo-500"
+                  >
+                    <option value="ALL">Все уровни</option>
+                    <option value="ERROR">Только ошибки</option>
+                    <option value="WARNING">Предупреждения</option>
+                    <option value="INFO">INFO</option>
+                  </select>
+                  <select
+                    value={logsLines}
+                    onChange={(e) => setLogsLines(Number(e.target.value))}
+                    className="rounded-md border border-border/50 bg-background px-2 py-1 text-[12px] text-foreground outline-none focus:border-indigo-500"
+                  >
+                    <option value={50}>50 строк</option>
+                    <option value={100}>100 строк</option>
+                    <option value={200}>200 строк</option>
+                    <option value={500}>500 строк</option>
+                  </select>
+                </>
+              )}
+
+              {/* Load / Refresh */}
+              <button
+                onClick={handleLoadLogs}
+                disabled={logsLoading}
+                className="flex items-center gap-1.5 rounded-lg border border-indigo-500/30 px-3 py-1 text-[12px] text-indigo-400 transition-colors hover:bg-indigo-500/10 disabled:opacity-50"
+              >
+                {logsLoading
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <RefreshCw className="h-3 w-3" />}
+                {logsData ? 'Обновить' : 'Загрузить'}
+              </button>
+
+              {/* Open folder (Electron only) */}
+              {window.electronAPI && (
+                <button
+                  onClick={() => window.electronAPI?.openLogsFolder()}
+                  title="Открыть папку с логами в Проводнике"
+                  className="flex items-center gap-1.5 rounded-lg border border-border/50 px-3 py-1 text-[12px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+                >
+                  <FolderOpen className="h-3 w-3" />
+                  Папка логов
+                </button>
+              )}
+            </div>
+
+            {/* Error */}
+            {logsError && (
+              <p className="rounded-lg bg-red-500/10 px-3 py-2 text-[11px] text-red-400">
+                Ошибка: {logsError}
+              </p>
+            )}
+
+            {/* ── Friendly output ── */}
+            {logsData && logsMode === 'friendly' && (() => {
+              const entries: FriendlyEntry[] = parseLogLines(logsData.lines)
+              if (entries.length === 0) {
+                return (
+                  <p className="text-[11px] text-muted-foreground">
+                    Нет событий для отображения. Попробуй «Технический» режим для деталей.
+                  </p>
+                )
+              }
+              return (
+                <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
+                  {entries.map((e, i) => (
+                    <div
+                      key={i}
+                      className={cn(
+                        'flex items-start gap-2 rounded-lg px-2 py-1.5 text-[12px]',
+                        e.isError   ? 'bg-red-500/10'
+                        : e.isWarning ? 'bg-amber-500/10'
+                        : 'bg-background/40 hover:bg-accent/40',
+                      )}
+                    >
+                      {/* Icon */}
+                      <span className="flex-shrink-0 text-[13px] leading-[1.4]">{e.icon}</span>
+                      {/* Text */}
+                      <span
+                        className={cn(
+                          'min-w-0 flex-1 leading-[1.5]',
+                          e.isError   ? 'text-red-400'
+                          : e.isWarning ? 'text-amber-400'
+                          : 'text-foreground',
+                        )}
+                      >
+                        {e.text}
+                      </span>
+                      {/* Time badge */}
+                      <span className="flex-shrink-0 text-[10px] text-muted-foreground/50 tabular-nums">
+                        {e.time}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+
+            {/* ── Raw (technical) output ── */}
+            {logsData && logsMode === 'raw' && (
+              logsData.lines.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Лог пуст или нет строк выбранного уровня.
+                </p>
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-border/40 bg-background">
+                  <div className="flex items-center justify-between border-b border-border/30 px-2 py-1">
+                    <span className="text-[10px] text-muted-foreground/60">{logsData.file}</span>
+                    <span className="text-[10px] text-muted-foreground/60">{logsData.total_lines} строк</span>
+                  </div>
+                  <pre className="max-h-64 overflow-y-auto p-2 text-[10px] leading-[1.6] font-mono whitespace-pre-wrap break-all">
+                    {logsData.lines.map((line, i) => (
+                      <span
+                        key={i}
+                        className={cn(
+                          'block',
+                          line.includes('ERROR')   ? 'text-red-400'
+                          : line.includes('WARNING') ? 'text-amber-400'
+                          : 'text-muted-foreground',
+                        )}
+                      >
+                        {line}
+                      </span>
+                    ))}
+                  </pre>
+                </div>
+              )
+            )}
+
+          </Section>
+
+          {/* ── Footer: version ──────────────────────────────────────────── */}
+          {appVersion && (
+            <p className="text-center text-[10px] text-muted-foreground/40">
+              TG Focus Filter v{appVersion}
+            </p>
+          )}
 
         </div>
       )}

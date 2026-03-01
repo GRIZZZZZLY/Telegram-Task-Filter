@@ -78,23 +78,61 @@ async def _tick(delay_seconds: int) -> None:
 
 async def _commit_task(db, task, settings, manager) -> None:
     """Send reaction + optional reply for one task, then record the event."""
-    from ..models import Event, EventType
+    from ..models import Event, EventType, TaskStatus
     from ..services.telegram_service import TelegramService
 
+    # Determine what reply to send:
+    #   - task.custom_reply set   → always send it, ignoring done_send_reply flag
+    #   - task.custom_reply empty → honour done_send_reply + done_reply_text from settings
+    custom = (task.custom_reply or "").strip()
+    send_reply = bool(custom) or settings.done_send_reply
+    reply_text = custom or settings.done_reply_text
+
     logger.info(
-        "Committing task | id=%d chat=%s msg=%d reaction=%r reply=%s",
+        "Committing task | id=%d chat=%s msg=%d reaction=%r send_reply=%s reply_text=%.60r custom_reply=%s",
         task.id, task.chat_id, task.source_message_id or 0,
-        settings.done_reaction, settings.done_send_reply,
+        settings.done_reaction, send_reply, reply_text, bool(custom),
     )
 
     tg = TelegramService()
     try:
+        # Hard safety check: never send reaction/reply unless source message
+        # still contains one of our configured mention handles.
+        allowed = await tg.message_mentions_handles(
+            chat_id=task.chat_id or "",
+            message_id=task.source_message_id or 0,
+            mention_handles=settings.get_mention_handles(),
+        )
+        if not allowed:
+            logger.warning(
+                "BLOCKED commit (no mention) | task_id=%d chat=%s msg=%s",
+                task.id,
+                task.chat_id,
+                task.source_message_id,
+            )
+            task.status = TaskStatus.inbox
+            task.committed_at = None
+            task.custom_reply = None
+            db.add(Event(
+                task_id=task.id,
+                type=EventType.error,
+                payload_json=json.dumps({
+                    "guard": "blocked_no_mention",
+                    "chat_id": task.chat_id,
+                    "source_message_id": task.source_message_id,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                }),
+            ))
+            db.commit()
+            await manager.broadcast("task_commit_failed", {"task_id": task.id})
+            return
+
         result = await tg.send_done(
             chat_id=task.chat_id or "",
             message_id=task.source_message_id or 0,
             reaction=settings.done_reaction,
-            send_reply=settings.done_send_reply,
-            reply_text=settings.done_reply_text,
+            send_reply=send_reply,
+            reply_text=reply_text,
         )
 
         db.add(Event(
@@ -128,3 +166,4 @@ async def _commit_task(db, task, settings, manager) -> None:
             db.commit()
         except Exception:
             db.rollback()
+        await manager.broadcast("task_commit_failed", {"task_id": task.id})

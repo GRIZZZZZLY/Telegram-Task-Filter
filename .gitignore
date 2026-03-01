@@ -20,6 +20,8 @@ dist/
 dist-electron/
 release/
 build/
+logs/
+secrets.dpapi
 *.tsbuildinfo
 target/
 .DS_Store

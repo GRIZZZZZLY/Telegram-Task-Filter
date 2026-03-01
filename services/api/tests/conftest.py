@@ -6,6 +6,7 @@ Uses in-memory SQLite via StaticPool so every test run is:
   - clean  (no leftover *.db files)
 """
 import pytest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -69,6 +70,23 @@ def mock_telegram_service():
         return_value={"reaction_removed": False, "reply_deleted": False},
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_pin_service(tmp_path):
+    """Ensure PIN service uses a temp directory so tests don't read/write real pin.json.
+
+    Without this, the PinAuthMiddleware would check the real user data dir
+    and potentially block test requests if a PIN was set on the dev machine.
+    """
+    import app.services.pin_service as ps
+    with patch("app.services.pin_service.get_data_dir", return_value=tmp_path):
+        # Reset all in-memory state for full test isolation
+        ps._active_tokens.clear()
+        ps._failed_attempts = 0
+        ps._lockout_until = 0.0
+        ps._current_pin = None
+        yield tmp_path
 
 
 @pytest.fixture

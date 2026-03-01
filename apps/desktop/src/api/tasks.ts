@@ -40,8 +40,15 @@ export function snoozeTask(id: number, minutes: number): Promise<Task> {
   })
 }
 
-export function reopenTask(id: number): Promise<{ task: Task; warning?: string }> {
-  return apiFetch(`/tasks/${id}/reopen`, { method: 'POST' })
+export interface ReopenResult {
+  task: Task
+  reaction_removed: boolean
+  reply_deleted: boolean
+  warnings: string[]
+}
+
+export function reopenTask(id: number): Promise<ReopenResult> {
+  return apiFetch<ReopenResult>(`/tasks/${id}/reopen`, { method: 'POST' })
 }
 
 export function changePriority(id: number, priority: string): Promise<Task> {
@@ -54,4 +61,16 @@ export function changePriority(id: number, priority: string): Promise<Task> {
 
 export function clearDoneTasks(): Promise<{ deleted: number }> {
   return apiFetch<{ deleted: number }>('/tasks/done', { method: 'DELETE' })
+}
+
+export function clearInboxTasks(): Promise<{ deleted: number }> {
+  return apiFetch<{ deleted: number }>('/tasks/inbox', { method: 'DELETE' })
+}
+
+export function dismissTask(id: number): Promise<{ ok: boolean; deleted: number }> {
+  return apiFetch<{ ok: boolean; deleted: number }>(`/tasks/${id}/dismiss`, { method: 'POST' })
+}
+
+export function pinTask(id: number): Promise<Task> {
+  return apiFetch<Task>(`/tasks/${id}/pin`, { method: 'POST' })
 }

@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react'
-import { Pin, PinOff, Settings } from 'lucide-react'
+import { Pin, PinOff, Settings, BarChart2 } from 'lucide-react'
 import { ThemeToggler } from '@/components/ui/ThemeToggler'
 import { useTheme } from '@/hooks/useTheme'
 
 interface Props {
   inboxCount: number
   onOpenSettings: () => void
+  onOpenStats: () => void
 }
 
 /** True when the app runs inside Electron (not a plain browser). */
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI
 
-export function TopBar({ inboxCount, onOpenSettings }: Props) {
+export function TopBar({ inboxCount, onOpenSettings, onOpenStats }: Props) {
   const { theme, toggle } = useTheme()
   const [pinned, setPinned] = useState(true)
 
@@ -54,6 +55,15 @@ export function TopBar({ inboxCount, onOpenSettings }: Props) {
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
         <ThemeToggler theme={theme} onToggle={toggle} />
+
+        {/* Stats */}
+        <button
+          onClick={onOpenStats}
+          title="Статистика"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <BarChart2 size={14} />
+        </button>
 
         {/* Settings */}
         <button

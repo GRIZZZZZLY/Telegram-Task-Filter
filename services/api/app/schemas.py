@@ -20,6 +20,8 @@ class TaskOut(BaseModel):
     chat_id: Optional[str] = None
     thread_id: Optional[str] = None
     source_message_id: Optional[int] = None
+    sender_id: Optional[str] = None
+    sender_username: Optional[str] = None
     committed_at: Optional[datetime] = None
     snoozed_until: Optional[datetime] = None
     sort_order: Optional[int] = None
@@ -91,9 +93,16 @@ class SettingsOut(BaseModel):
     filter_strict_mentions: bool
     # Cleanup
     cleanup_done_after_days: int
+    # Catch-up scan
+    catchup_hours: int
     # UI
+    notifications_enabled: bool
     sound_enabled: bool
+    notification_sound: str
     compact_mode: bool
+    # Inbox sort
+    tasks_inbox_sort_direction: str
+    tasks_inbox_sort_by_priority: bool
 
 
 class SettingsIn(BaseModel):
@@ -109,5 +118,10 @@ class SettingsIn(BaseModel):
     filter_min_text_length: Optional[int] = Field(default=None, ge=0, le=2000)
     filter_strict_mentions: Optional[bool] = None
     cleanup_done_after_days: Optional[int] = Field(default=None, ge=0, le=365)
+    catchup_hours: Optional[int] = Field(default=None, ge=0, le=168)
+    notifications_enabled: Optional[bool] = None
     sound_enabled: Optional[bool] = None
+    notification_sound: Optional[str] = None
     compact_mode: Optional[bool] = None
+    tasks_inbox_sort_direction: Optional[str] = None
+    tasks_inbox_sort_by_priority: Optional[bool] = None

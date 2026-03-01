@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ExternalLink, RotateCcw, Clock, ChevronDown, Check, GripVertical } from 'lucide-react'
+import { ExternalLink, RotateCcw, Clock, ChevronDown, ChevronUp, Check, GripVertical, Trash2, Maximize2, Pin, PinOff } from 'lucide-react'
 import type { Task, TaskPriority } from '@/types/task'
 import { cn } from '@/lib/utils'
 import { createPortal } from 'react-dom'
+import { nativeConfirm } from '@/lib/dialog'
+import { stripLeadingMentions } from '@/lib/text'
 
 // ── Priority config ────────────────────────────────────────────────────────
 
@@ -13,6 +15,12 @@ const PRIORITY_CONFIG: Record<TaskPriority, {
   badge: string
   badgeBg: string
 }> = {
+  normal: {
+    label: 'NORM',
+    bar: 'bg-slate-500',
+    badge: 'text-slate-400',
+    badgeBg: 'bg-slate-500/10 hover:bg-slate-500/20 border-slate-500/20',
+  },
   high: {
     label: 'HIGH',
     bar: 'bg-red-500',
@@ -33,7 +41,7 @@ const PRIORITY_CONFIG: Record<TaskPriority, {
   },
 }
 
-const PRIORITY_CYCLE: TaskPriority[] = ['high', 'medium', 'low']
+const PRIORITY_CYCLE: TaskPriority[] = ['normal', 'high', 'medium', 'low']
 
 // ── Snooze options ──────────────────────────────────────────────────────────
 
@@ -68,32 +76,32 @@ function formatChatLabel(chatId: string): string {
   return chatId
 }
 
+const MSK_TZ = 'Europe/Moscow'
+
+/** Returns YYYY-MM-DD string in Moscow timezone — for reliable date comparison. */
+function toMskDateStr(d: Date): string {
+  return d.toLocaleDateString('en-CA', { timeZone: MSK_TZ }) // "en-CA" → ISO YYYY-MM-DD
+}
+
 function formatTime(iso: string): string {
   const d = new Date(iso)
   const now = new Date()
   const diffMin = Math.floor((now.getTime() - d.getTime()) / 60_000)
-  const timeStr = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 
-  if (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  ) {
+  const timeStr = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: MSK_TZ })
+
+  // Compare calendar dates in Moscow timezone (not in browser local time)
+  const dDateStr   = toMskDateStr(d)
+  const nowDateStr = toMskDateStr(now)
+  const ydDateStr  = toMskDateStr(new Date(now.getTime() - 86_400_000))
+
+  if (dDateStr === nowDateStr) {
     if (diffMin < 1) return 'только что'
     return timeStr
   }
+  if (dDateStr === ydDateStr) return `вчера ${timeStr}`
 
-  const yesterday = new Date(now)
-  yesterday.setDate(now.getDate() - 1)
-  if (
-    d.getFullYear() === yesterday.getFullYear() &&
-    d.getMonth() === yesterday.getMonth() &&
-    d.getDate() === yesterday.getDate()
-  ) {
-    return `вчера ${timeStr}`
-  }
-
-  const dateStr = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+  const dateStr = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: MSK_TZ })
   return `${dateStr} ${timeStr}`
 }
 
@@ -105,21 +113,36 @@ function formatSnoozedUntil(iso: string): string {
   if (diffMin < 60) return `${diffMin} мин`
   const diffH = Math.round(diffMin / 60)
   if (diffH < 24) return `${diffH} ч`
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: MSK_TZ })
 }
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
+const UNDO_TIMEOUT_MS = 5000
+
 interface Props {
   task: Task
   onDone: (id: number, customReply?: string) => void
+  onDismiss: (id: number) => void
   onSnooze: (id: number, minutes: number) => void
   onReopen: (id: number) => void
   onPriorityChange: (id: number, priority: TaskPriority) => void
+  onPin?: (id: number) => void
   loadingId: number | null
   compact?: boolean
   chatNames?: Map<string, string>
+  threadNames?: Map<string, string>
   isDragging?: boolean
+  /** Card is in "done, undo available" state — shows inline undo UI */
+  isPendingDone?: boolean
+  /** Called when user clicks Отменить */
+  onUndoDone?: () => void
+  /** Called when undo window expires */
+  onDoneExpire?: () => void
+  /** Telegram reaction/reply failed to send for this task */
+  isCommitFailed?: boolean
+  /** Called when user clicks the "open detail" expand button */
+  onOpenDetail?: () => void
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -127,19 +150,28 @@ interface Props {
 export function TaskCard({
   task,
   onDone,
+  onDismiss,
   onSnooze,
   onReopen,
   onPriorityChange,
+  onPin,
   loadingId,
   compact = false,
   chatNames,
+  threadNames,
   isDragging = false,
+  isPendingDone = false,
+  onUndoDone,
+  onDoneExpire,
+  isCommitFailed = false,
+  onOpenDetail,
 }: Props) {
   const cfg = PRIORITY_CONFIG[task.priority]
   const isLoading = loadingId === task.id
   const isDone    = task.status === 'done'
   const isSnoozed = task.status === 'snoozed'
   const isInbox   = task.status === 'inbox'
+  const isPinned  = task.sort_order !== null && task.sort_order < 0
 
   // Snooze dropdown
   const [snoozeOpen, setSnoozeOpen] = useState(false)
@@ -147,10 +179,35 @@ export function TaskCard({
   const snoozeBtnRef = useRef<HTMLButtonElement>(null)
   const [snoozePos, setSnoozePos] = useState<{ top: number; left: number; openUp: boolean }>({ top: 0, left: 0, openUp: false })
 
+  // Body expand/collapse
+  const [expanded, setExpanded] = useState(false)
+
   // Custom reply inline input
   const [replyOpen, setReplyOpen] = useState(false)
   const [replyText, setReplyText] = useState('')
   const replyInputRef = useRef<HTMLInputElement>(null)
+
+  // Inline-undo progress (0-100)
+  const [undoProgress, setUndoProgress] = useState(100)
+
+  useEffect(() => {
+    if (!isPendingDone) {
+      setUndoProgress(100)
+      return
+    }
+    setUndoProgress(100)
+    const start = Date.now()
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - start
+      const remaining = Math.max(0, 100 - (elapsed / UNDO_TIMEOUT_MS) * 100)
+      setUndoProgress(remaining)
+      if (remaining === 0) {
+        clearInterval(interval)
+        onDoneExpire?.()
+      }
+    }, 50)
+    return () => clearInterval(interval)
+  }, [isPendingDone, onDoneExpire])
 
   useEffect(() => {
     if (replyOpen) setTimeout(() => replyInputRef.current?.focus(), 50)
@@ -202,6 +259,16 @@ export function TaskCard({
     onDone(task.id, text || undefined)
   }
 
+  const chatId = task.chat_id || task.source_chat || ''
+  const chatLabel = chatNames?.get(chatId) ?? formatChatLabel(chatId)
+  const threadLabel = task.thread_id ? (threadNames?.get(`${chatId}:${task.thread_id}`) ?? `тема #${task.thread_id}`) : null
+
+  const handleDismissClick = async () => {
+    const ok = await nativeConfirm('Убрать задачу из inbox без реакции и ответа в Telegram?')
+    if (!ok) return
+    onDismiss(task.id)
+  }
+
   return (
     <motion.div
       layout
@@ -215,11 +282,35 @@ export function TaskCard({
         isDone && 'opacity-60',
       )}
     >
+
       {/* Priority bar — thin coloured stripe (kept for visual accent) */}
       <div className={cn('w-1 flex-shrink-0 rounded-l-xl', cfg.bar)} />
 
-      {/* Card body */}
-      <div className={cn('flex flex-1 flex-col gap-1 px-3', compact ? 'py-2' : 'py-2.5')}>
+      {/* ── Inline undo state ─────────────────────────────────────────────── */}
+      {isPendingDone ? (
+        <div className="relative flex flex-1 items-center gap-2 overflow-hidden px-3 py-3">
+          {/* Depleting progress bar at the bottom edge */}
+          <div
+            className="absolute bottom-0 left-0 h-0.5 bg-indigo-500 transition-none"
+            style={{ width: `${undoProgress}%` }}
+          />
+          <span className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
+            ✅{' '}
+            <span className="font-medium text-foreground">
+              {task.title.length > 40 ? `${task.title.slice(0, 40)}…` : task.title}
+            </span>
+            {' '}выполнено
+          </span>
+          <button
+            onClick={onUndoDone}
+            className="shrink-0 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            Отменить
+          </button>
+        </div>
+      ) : (
+        /* Card body */
+        <div className={cn('flex flex-1 flex-col gap-1 px-3', compact ? 'py-2' : 'py-2.5')}>
 
         {/* Top row: priority badge (clickable) + drag handle + time */}
         {!compact && (
@@ -240,8 +331,26 @@ export function TaskCard({
               {cfg.label}
             </button>
 
+            {/* Pinned badge */}
+            {isPinned && (
+              <span className="flex items-center gap-0.5 rounded-md border border-indigo-500/30 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-400">
+                <Pin className="h-2.5 w-2.5" />
+                закреплено
+              </span>
+            )}
+
+            {/* Commit-failed warning badge */}
+            {isCommitFailed && (
+              <span
+                title="Не удалось отправить реакцию в Telegram. Проверьте логи."
+                className="flex items-center gap-0.5 rounded-md border border-orange-500/30 bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-orange-400"
+              >
+                ⚠ Реакция не отправлена
+              </span>
+            )}
+
             {/* Drag handle — inbox only */}
-            {isDragging && (
+            {isDragging && !isPinned && (
               <span className="cursor-grab text-muted-foreground/30 hover:text-muted-foreground/60 active:cursor-grabbing">
                 <GripVertical className="h-3.5 w-3.5" />
               </span>
@@ -257,21 +366,45 @@ export function TaskCard({
           </div>
         )}
 
-        {/* Title */}
+        {/* Title — leading @mention stripped for display */}
         <p className={cn(
           'font-medium leading-snug text-foreground',
-          compact ? 'text-[13px] line-clamp-1' : 'text-sm line-clamp-2',
+          compact ? 'text-[13px] line-clamp-1' : expanded ? 'text-sm' : 'text-sm line-clamp-2',
         )}>
-          {task.title}
+          {stripLeadingMentions(task.title)}
         </p>
 
-        {/* Source chat */}
+        {/* Body — shown when expanded */}
+        {!compact && expanded && task.body && (
+          <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-muted-foreground">
+            {stripLeadingMentions(task.body)}
+          </p>
+        )}
+
+        {/* Expand / collapse toggle — only when body exists */}
+        {!compact && task.body && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="flex items-center gap-0.5 self-start text-[11px] text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+          >
+            {expanded
+              ? <><ChevronUp className="h-3 w-3" />Свернуть</>
+              : <><ChevronDown className="h-3 w-3" />Развернуть</>
+            }
+          </button>
+        )}
+
+        {/* Sender + source chat */}
         {!compact && (
           <p className="text-[11px] text-muted-foreground">
             {isSnoozed && task.snoozed_until ? null : (
-              <>из <span className="font-medium">
-                {chatNames?.get(task.source_chat) ?? formatChatLabel(task.source_chat)}
-              </span></>
+              <>
+                {task.sender_username && (
+                  <><span className="font-medium text-foreground/80">{task.sender_username}</span> · </>
+                )}
+                из <span className="font-medium">{chatLabel}</span>
+                {threadLabel ? <> · <span className="text-muted-foreground/80">{threadLabel}</span></> : null}
+              </>
             )}
           </p>
         )}
@@ -406,22 +539,67 @@ export function TaskCard({
             </div>
           )}
 
+          {isInbox && (
+            <button
+              onClick={handleDismissClick}
+              disabled={isLoading}
+              title="Убрать из inbox"
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-red-500/30 text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          )}
+
+          {/* Pin / unpin — inbox only */}
+          {isInbox && onPin && (
+            <button
+              onClick={() => onPin(task.id)}
+              disabled={isLoading}
+              title={isPinned ? 'Открепить' : 'Закрепить вверху'}
+              className={cn(
+                'flex h-7 w-7 items-center justify-center rounded-lg border transition-colors disabled:opacity-50',
+                isPinned
+                  ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25'
+                  : 'border-border/50 text-muted-foreground hover:border-border hover:text-foreground',
+              )}
+            >
+              {isPinned
+                ? <PinOff className="h-3 w-3" />
+                : <Pin className="h-3 w-3" />}
+            </button>
+          )}
+
+          {/* Open detail modal */}
+          {onOpenDetail && (
+            <button
+              onClick={onOpenDetail}
+              title="Открыть подробности"
+              className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Maximize2 className="h-3 w-3" />
+            </button>
+          )}
+
           {/* Link to original message */}
           <a
-            href={buildTgLink(task.source_chat, task.source_message_id)}
+            href={buildTgLink(chatId, task.source_message_id)}
             target="_blank"
             rel="noreferrer"
-            className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
+            className={cn(
+              'flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground',
+              !onOpenDetail && 'ml-auto',
+            )}
             title="Открыть в Telegram"
             onClick={(e) => {
               e.preventDefault()
-              window.electronAPI?.openExternal(buildTgLink(task.source_chat, task.source_message_id))
+              window.electronAPI?.openExternal(buildTgLink(chatId, task.source_message_id))
             }}
           >
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>
-      </div>
+        </div>
+      )}
     </motion.div>
   )
 }

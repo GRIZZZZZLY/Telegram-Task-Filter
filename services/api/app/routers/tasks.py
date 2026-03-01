@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import TaskPriority, TaskStatus
 from ..schemas import DoneIn, PriorityIn, ReorderIn, ReopenOut, SnoozeIn, TaskListOut, TaskOut
+from ..services.notification_service import manager
 from ..services.task_service import TaskService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -82,7 +83,7 @@ def change_task_priority(task_id: int, body: PriorityIn, db: Session = Depends(g
 
 
 @router.delete("/done", summary="Delete all done tasks")
-def delete_done_tasks(
+async def delete_done_tasks(
     older_than_days: int = Query(0, ge=0, description="Only delete tasks older than N days (0 = all)"),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -92,7 +93,49 @@ def delete_done_tasks(
     """
     svc = TaskService(db)
     count = svc.clear_done(older_than_days)
+    await manager.broadcast("done_cleared", {"deleted": count})
     return {"deleted": count}
+
+
+@router.delete("/inbox", summary="Delete all inbox tasks")
+async def delete_inbox_tasks(db: Session = Depends(get_db)) -> dict:
+    """Delete all inbox tasks.
+
+    Safety note: this only removes local tasks from SQLite.
+    No Telegram reactions or replies are sent.
+
+    Returns { deleted: N }.
+    """
+    svc = TaskService(db)
+    count = svc.clear_inbox()
+    await manager.broadcast("inbox_cleared", {"deleted": count})
+    return {"deleted": count}
+
+
+@router.post("/{task_id}/dismiss", summary="Dismiss task without Telegram action")
+def dismiss_task(task_id: int, db: Session = Depends(get_db)) -> dict:
+    """Delete a task silently — no reaction or reply sent to Telegram.
+
+    Use when the task is irrelevant and no Telegram action is needed.
+
+    - **404** task not found
+    """
+    svc = TaskService(db)
+    svc.dismiss(task_id)
+    return {"ok": True, "deleted": task_id}
+
+
+@router.post("/{task_id}/pin", response_model=TaskOut, summary="Pin/unpin task to top of inbox")
+def pin_task(task_id: int, db: Session = Depends(get_db)) -> Any:
+    """Toggle pin state for an inbox task.
+
+    Pinned tasks appear above all others (sort_order = -1 or lower).
+    Calling pin on an already-pinned task unpins it (sort_order → None).
+
+    - **404** task not found
+    """
+    svc = TaskService(db)
+    return svc.pin_task(task_id)
 
 
 @router.post("/{task_id}/reopen", response_model=ReopenOut, summary="Reopen done task")

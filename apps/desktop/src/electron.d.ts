@@ -17,6 +17,10 @@ declare global {
       notify: (title: string, body: string) => void
       /** Enable or disable sound in native notifications */
       setSoundEnabled: (enabled: boolean) => void
+      /** Enable or disable OS toast notifications entirely */
+      setNotificationsEnabled: (enabled: boolean) => void
+      /** Get the app version string */
+      getVersion: () => Promise<string>
       /** Open a URL in the system default browser */
       openExternal: (url: string) => void
       /** Toggle maximize / restore window */
@@ -27,6 +31,10 @@ declare global {
       onMaximizeChanged: (cb: (maximized: boolean) => void) => () => void
       /** Quit the app completely */
       quit: () => void
+      /** Open the logs folder in Windows Explorer */
+      openLogsFolder: () => void
+      /** Show a native Electron confirmation dialog; returns true if confirmed */
+      confirm: (message: string) => Promise<boolean>
     }
   }
 }

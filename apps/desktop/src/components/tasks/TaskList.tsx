@@ -1,47 +1,86 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import { Loader2, Trash2 } from 'lucide-react'
+import { Loader2, Trash2, Search, X } from 'lucide-react'
 import { TaskCard } from './TaskCard'
-import { UndoToast } from './UndoToast'
+import { TaskDetailModal } from './TaskDetailModal'
 import { useTasks } from '@/hooks/useTasks'
 import { useChatNames } from '@/hooks/useChatNames'
+import { useThreadNames } from '@/hooks/useThreadNames'
+import { useKeyboard } from '@/hooks/useKeyboard'
 import { clearDoneTasks } from '@/api/tasks'
 import type { TabId, Task, TaskPriority } from '@/types/task'
 import { cn } from '@/lib/utils'
+import { nativeConfirm } from '@/lib/dialog'
 
 interface Props {
   tab: TabId
   compact?: boolean
   onInboxCountChange?: (count: number) => void
+  /** Called when Escape is pressed (e.g. to close settings panel) */
+  onEscape?: () => void
+  /** Increment to force-refetch tasks (e.g. after sort settings change) */
+  refreshTrigger?: number
 }
 
-export function TaskList({ tab, compact = false, onInboxCountChange }: Props) {
+export function TaskList({ tab, compact = false, onInboxCountChange, onEscape, refreshTrigger }: Props) {
   const {
     tasks,
     loading,
     error,
     loadingId,
     pendingUndo,
+    failedCommitIds,
     handleDone,
+    handleDismiss,
     handleSnooze,
     handleReopen,
     handleUndoDone,
     handlePriorityChange,
     handleReorder,
+    handlePin,
     clearUndo,
     refetch,
     setTasks,
-  } = useTasks(tab)
+  } = useTasks(tab, refreshTrigger)
 
   const [clearing, setClearing] = useState(false)
+  const [search, setSearch] = useState('')
+  const [detailTask, setDetailTask] = useState<Task | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const chatNames = useChatNames()
+  const threadNames = useThreadNames(tasks)
+
+  // Local search filter — case-insensitive match on title + body
+  const visibleTasks = search.trim()
+    ? tasks.filter((t) => {
+        const q = search.toLowerCase()
+        return (
+          t.title.toLowerCase().includes(q) ||
+          (t.body ?? '').toLowerCase().includes(q)
+        )
+      })
+    : tasks
+
+  // ── Keyboard navigation ──────────────────────────────────────────────────
+  const { selectedTaskId, setSelectedTaskId } = useKeyboard({
+    tasks: visibleTasks,
+    onDone: (id) => void handleDone(id),
+    onUndo: pendingUndo ? () => void handleUndoDone(pendingUndo.id) : null,
+    searchInputRef,
+    onEscape,
+    enabled: tab === 'inbox',
+  })
 
   // ── Drag-and-drop state ──────────────────────────────────────────────────
   const dragIdRef = useRef<number | null>(null)
   const [dragOverId, setDragOverId] = useState<number | null>(null)
 
+  /** Закреплённая задача: sort_order < 0. Нельзя перетаскивать и нельзя бросать на неё. */
+  const isPinnedTask = (task: Task) => task.sort_order !== null && task.sort_order < 0
+
   const handleClearDone = useCallback(async () => {
-    if (!confirm('Удалить все выполненные задачи?')) return
+    const ok = await nativeConfirm('Удалить все выполненные задачи?')
+    if (!ok) return
     setClearing(true)
     try {
       await clearDoneTasks()
@@ -60,11 +99,15 @@ export function TaskList({ tab, compact = false, onInboxCountChange }: Props) {
   // ── DnD handlers (inbox only) ────────────────────────────────────────────
 
   const onDragStart = (id: number) => {
+    const task = tasks.find((t) => t.id === id)
+    if (task && isPinnedTask(task)) return  // Закреплённые не перетаскиваются
     dragIdRef.current = id
   }
 
   const onDragOver = (e: React.DragEvent, overId: number) => {
     e.preventDefault()
+    const overTask = tasks.find((t) => t.id === overId)
+    if (overTask && isPinnedTask(overTask)) return  // Нельзя бросать на закреплённую
     if (dragIdRef.current !== overId) setDragOverId(overId)
   }
 
@@ -76,14 +119,30 @@ export function TaskList({ tab, compact = false, onInboxCountChange }: Props) {
       return
     }
 
+    const fromTask = tasks.find((t) => t.id === fromId)
+    const toTask   = tasks.find((t) => t.id === targetId)
+
+    // Защита: закреплённые задачи не участвуют в DnD
+    if ((fromTask && isPinnedTask(fromTask)) || (toTask && isPinnedTask(toTask))) {
+      dragIdRef.current = null
+      setDragOverId(null)
+      return
+    }
+
     setTasks((prev: Task[]) => {
-      const next = [...prev]
-      const fromIdx = next.findIndex((t) => t.id === fromId)
-      const toIdx = next.findIndex((t) => t.id === targetId)
+      // Закреплённые всегда остаются сверху, переупорядочиваем только незакреплённые
+      const pinned    = prev.filter((t) => isPinnedTask(t))
+      const nonPinned = prev.filter((t) => !isPinnedTask(t))
+
+      const fromIdx = nonPinned.findIndex((t) => t.id === fromId)
+      const toIdx   = nonPinned.findIndex((t) => t.id === targetId)
       if (fromIdx === -1 || toIdx === -1) return prev
-      const [moved] = next.splice(fromIdx, 1)
-      next.splice(toIdx, 0, moved)
-      // Persist new order
+
+      const [moved] = nonPinned.splice(fromIdx, 1)
+      nonPinned.splice(toIdx, 0, moved)
+
+      const next = [...pinned, ...nonPinned]
+      // Передаём все ID — reorder() на бэкенде пропустит закреплённые
       void handleReorder(next.map((t) => t.id))
       return next
     })
@@ -137,6 +196,34 @@ export function TaskList({ tab, compact = false, onInboxCountChange }: Props) {
 
   return (
     <>
+      {/* Search bar */}
+      <div className="relative mb-2">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
+        <input
+          ref={searchInputRef}
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { setSearch(''); e.currentTarget.blur() }
+          }}
+          placeholder="Поиск по задачам... (Ctrl+F)"
+          className={cn(
+            'w-full rounded-lg border border-border/40 bg-muted/30 py-1.5 pl-7 pr-7 text-[12px]',
+            'text-foreground placeholder:text-muted-foreground/40',
+            'outline-none transition-colors focus:border-indigo-500/50 focus:bg-muted/50',
+          )}
+        />
+        {search && (
+          <button
+            onClick={() => setSearch('')}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
       {tab === 'done' && tasks.length > 0 && (
         <div className="mb-2 flex justify-end">
           <button
@@ -152,43 +239,67 @@ export function TaskList({ tab, compact = false, onInboxCountChange }: Props) {
         </div>
       )}
 
+      {/* No search results */}
+      {visibleTasks.length === 0 && search && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 py-8 text-center">
+          <p className="text-muted-foreground/60 text-[12px]">Ничего не найдено</p>
+        </div>
+      )}
+
       <div className="flex flex-col gap-2">
         <AnimatePresence mode="popLayout">
-          {tasks.map((task) => (
+          {visibleTasks.map((task) => (
             <div
               key={task.id}
-              draggable={tab === 'inbox'}
+              draggable={tab === 'inbox' && !isPinnedTask(task)}
               onDragStart={() => onDragStart(task.id)}
               onDragOver={(e) => onDragOver(e, task.id)}
               onDrop={(e) => onDrop(e, task.id)}
               onDragEnd={onDragEnd}
+              onClick={() => setSelectedTaskId(task.id)}
               className={cn(
-                'transition-opacity',
+                'transition-opacity rounded-xl',
                 dragIdRef.current === task.id && 'opacity-40',
-                dragOverId === task.id && 'ring-2 ring-indigo-500/60 rounded-xl',
+                dragOverId === task.id && !isPinnedTask(task) && 'ring-2 ring-indigo-500/60',
+                selectedTaskId === task.id && 'ring-2 ring-indigo-400/70',
               )}
             >
               <TaskCard
                 task={task}
                 compact={compact}
                 chatNames={chatNames}
+                threadNames={threadNames}
                 onDone={handleDone}
+                onDismiss={handleDismiss}
                 onSnooze={handleSnooze}
                 onReopen={handleReopen}
                 onPriorityChange={(id: number, p: TaskPriority) => handlePriorityChange(id, p)}
+                onPin={tab === 'inbox' ? handlePin : undefined}
                 loadingId={loadingId}
-                isDragging={tab === 'inbox'}
+                isDragging={tab === 'inbox' && !isPinnedTask(task)}
+                isPendingDone={pendingUndo?.id === task.id}
+                onUndoDone={() => handleUndoDone(task.id)}
+                onDoneExpire={clearUndo}
+                isCommitFailed={failedCommitIds.has(task.id)}
+                onOpenDetail={() => setDetailTask(task)}
               />
             </div>
           ))}
         </AnimatePresence>
       </div>
 
-      <UndoToast
-        taskId={pendingUndo?.id ?? null}
-        taskTitle={pendingUndo?.title ?? ''}
-        onUndo={handleUndoDone}
-        onExpire={clearUndo}
+      {/* Task detail modal */}
+      <TaskDetailModal
+        task={detailTask}
+        chatNames={chatNames}
+        threadNames={threadNames}
+        loadingId={loadingId}
+        onClose={() => setDetailTask(null)}
+        onDone={handleDone}
+        onDismiss={handleDismiss}
+        onSnooze={handleSnooze}
+        onReopen={handleReopen}
+        onPriorityChange={handlePriorityChange}
       />
     </>
   )

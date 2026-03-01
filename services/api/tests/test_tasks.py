@@ -131,6 +131,37 @@ class TestListTasks:
         assert expected_fields.issubset(item.keys())
 
 
+# ── POST /tasks/{id}/pin ─────────────────────────────────────────────────────
+
+class TestPinTask:
+    def test_can_pin_more_than_two_tasks(self, client, db_session):
+        t1 = seed_task(db_session, "Pin A")
+        t2 = seed_task(db_session, "Pin B")
+        t3 = seed_task(db_session, "Pin C")
+
+        r1 = client.post(f"/tasks/{t1.id}/pin")
+        r2 = client.post(f"/tasks/{t2.id}/pin")
+        r3 = client.post(f"/tasks/{t3.id}/pin")
+
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        assert r3.status_code == 200
+
+    def test_pinned_tasks_keep_negative_sort_order(self, client, db_session):
+        t1 = seed_task(db_session, "Pin 1")
+        t2 = seed_task(db_session, "Pin 2")
+        t3 = seed_task(db_session, "Pin 3")
+
+        client.post(f"/tasks/{t1.id}/pin")
+        client.post(f"/tasks/{t2.id}/pin")
+        client.post(f"/tasks/{t3.id}/pin")
+
+        body = client.get("/tasks?status=inbox").json()
+        pinned = [item for item in body["items"] if item["sort_order"] is not None and item["sort_order"] < 0]
+
+        assert len(pinned) == 3
+
+
 # ── POST /tasks/{id}/done ───────────────────────────────────────────────────
 
 class TestMarkDone:

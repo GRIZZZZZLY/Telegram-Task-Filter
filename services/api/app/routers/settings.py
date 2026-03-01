@@ -28,8 +28,13 @@ def get_all_settings() -> SettingsOut:
         filter_min_text_length=s.filter_min_text_length,
         filter_strict_mentions=s.filter_strict_mentions,
         cleanup_done_after_days=s.cleanup_done_after_days,
+        catchup_hours=s.catchup_hours,
+        notifications_enabled=s.notifications_enabled,
         sound_enabled=s.sound_enabled,
+        notification_sound=s.notification_sound,
         compact_mode=s.compact_mode,
+        tasks_inbox_sort_direction=s.tasks_inbox_sort_direction,
+        tasks_inbox_sort_by_priority=s.tasks_inbox_sort_by_priority,
     )
 
 
@@ -37,6 +42,10 @@ def get_all_settings() -> SettingsOut:
 def update_settings(body: SettingsIn) -> SettingsOut:
     """Persist changed settings to .env.  Only non-None fields are updated."""
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    # Hard-lock strict mention mode (safety invariant): always true,
+    # but only when caller attempts to update this field.
+    if "filter_strict_mentions" in updates:
+        updates["filter_strict_mentions"] = True
     if updates:
         save_settings(updates)
         logger.info("Settings updated: %s", list(updates.keys()))
