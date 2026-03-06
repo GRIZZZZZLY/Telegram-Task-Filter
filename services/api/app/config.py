@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     tg_mention_handles: str = ""
     tg_monitored_chat_ids: str = ""
     tg_monitored_thread_ids: str = ""
+    # Context lift mode for short ping-replies:
+    # when enabled, task text/reply target may be inherited from parent message.
+    tg_context_lift_enabled: bool = False
 
     # ── Reactions & reply ────────────────────────────────────────────────
     # Must be a valid Telegram reaction emoji (👍 ❤ 🔥 ✍ 👏 🎉 etc.)

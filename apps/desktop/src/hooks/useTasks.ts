@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getTasks, markDone, reopenTask, snoozeTask, changePriority, reorderTasks, dismissTask, pinTask } from '@/api/tasks'
+import { getTasks, markDone, reopenTask, snoozeTask, changePriority, reorderTasks, dismissTask, pinTask, startWorkTask } from '@/api/tasks'
 import { getWsUrl } from '@/api/client'
 import type { Task, TabId, TaskPriority, WsEvent } from '@/types/task'
 import { playNewTaskSound } from '@/lib/sound'
@@ -16,6 +16,11 @@ function normalizeTask(raw: Task | (Record<string, unknown> & { id: number })): 
     ...(raw as Task),
     chat_id: chatId,
     thread_id: (raw as { thread_id?: string | null }).thread_id ?? null,
+    trigger_message_id: (raw as { trigger_message_id?: number | null }).trigger_message_id ?? null,
+    in_progress: (raw as { in_progress?: boolean }).in_progress ?? false,
+    work_started_at: (raw as { work_started_at?: string | null }).work_started_at ?? null,
+    source_changed: (raw as { source_changed?: boolean }).source_changed ?? false,
+    source_edited_at: (raw as { source_edited_at?: string | null }).source_edited_at ?? null,
   }
 }
 
@@ -34,6 +39,7 @@ interface UseTasksResult {
   handlePriorityChange: (id: number, priority: TaskPriority) => Promise<void>
   handleReorder: (ids: number[]) => Promise<void>
   handlePin: (id: number) => Promise<void>
+  handleStartWork: (id: number) => Promise<void>
   clearUndo: () => void
   refetch: () => Promise<void>
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>
@@ -147,6 +153,11 @@ export function useTasks(status: string, refreshTrigger?: number): UseTasksResul
               void fetchTasks()
             }
             window.electronAPI?.notify('⏰ Задача напоминает о себе', normalized.title.slice(0, 60))
+          }
+
+          if (event.type === 'task_updated' && task) {
+            const normalized = normalizeTask(task)
+            setTasks((prev) => prev.map((t) => (t.id === normalized.id ? { ...t, ...normalized } : t)))
           }
         } catch {
           // ignore parse errors
@@ -280,6 +291,19 @@ export function useTasks(status: string, refreshTrigger?: number): UseTasksResul
     }
   }, [fetchTasks])
 
+  const handleStartWork = useCallback(async (id: number) => {
+    setLoadingId(id)
+    try {
+      const updated = await startWorkTask(id)
+      const normalized = normalizeTask(updated)
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...normalized } : t)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка отметки "в работе"')
+    } finally {
+      setLoadingId(null)
+    }
+  }, [])
+
   const clearUndo = useCallback(() => {
     // Undo window expired — now actually remove the pending-done task from the list
     const id = pendingUndoIdRef.current
@@ -305,6 +329,7 @@ export function useTasks(status: string, refreshTrigger?: number): UseTasksResul
     handlePriorityChange,
     handleReorder,
     handlePin,
+    handleStartWork,
     clearUndo,
     refetch: fetchTasks,
     setTasks,

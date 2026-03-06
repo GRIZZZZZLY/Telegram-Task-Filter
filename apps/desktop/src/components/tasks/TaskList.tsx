@@ -38,6 +38,7 @@ export function TaskList({ tab, compact = false, onInboxCountChange, onEscape, r
     handlePriorityChange,
     handleReorder,
     handlePin,
+    handleStartWork,
     clearUndo,
     refetch,
     setTasks,
@@ -251,11 +252,8 @@ export function TaskList({ tab, compact = false, onInboxCountChange, onEscape, r
           {visibleTasks.map((task) => (
             <div
               key={task.id}
-              draggable={tab === 'inbox' && !isPinnedTask(task)}
-              onDragStart={() => onDragStart(task.id)}
               onDragOver={(e) => onDragOver(e, task.id)}
               onDrop={(e) => onDrop(e, task.id)}
-              onDragEnd={onDragEnd}
               onClick={() => setSelectedTaskId(task.id)}
               className={cn(
                 'transition-opacity rounded-xl',
@@ -275,8 +273,11 @@ export function TaskList({ tab, compact = false, onInboxCountChange, onEscape, r
                 onReopen={handleReopen}
                 onPriorityChange={(id: number, p: TaskPriority) => handlePriorityChange(id, p)}
                 onPin={tab === 'inbox' ? handlePin : undefined}
+                onStartWork={tab === 'inbox' ? handleStartWork : undefined}
                 loadingId={loadingId}
                 isDragging={tab === 'inbox' && !isPinnedTask(task)}
+                onDragHandleStart={() => onDragStart(task.id)}
+                onDragHandleEnd={onDragEnd}
                 isPendingDone={pendingUndo?.id === task.id}
                 onUndoDone={() => handleUndoDone(task.id)}
                 onDoneExpire={clearUndo}

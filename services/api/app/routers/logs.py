@@ -19,7 +19,7 @@ router = APIRouter(prefix="/logs", tags=["logs"])
 _LOG_FILE: Path = get_data_dir() / "logs" / "backend.log"
 
 # Keywords that identify each level in the formatted log line.
-# Format: "YYYY-MM-DD HH:MM:SS,mmm MSK LEVEL    name | message"
+# Format: "YYYY-MM-DD HH:MM:SS,mmm UTC LEVEL    name | message"
 _LEVEL_KEYWORDS: dict[str, list[str]] = {
     "ERROR":   ["ERROR"],
     "WARNING": ["WARNING"],

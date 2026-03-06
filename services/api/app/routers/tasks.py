@@ -138,6 +138,22 @@ def pin_task(task_id: int, db: Session = Depends(get_db)) -> Any:
     return svc.pin_task(task_id)
 
 
+@router.post("/{task_id}/start-work", response_model=TaskOut, summary="Mark task as in work (👀)")
+async def start_work_task(task_id: int, db: Session = Depends(get_db)) -> Any:
+    """Mark inbox task as in-progress and send 👀 reaction to Telegram source.
+
+    The task remains in inbox. This is a "seen / taken" marker before Done.
+
+    - **404** task not found
+    - **409** task is not in inbox
+    """
+    svc = TaskService(db)
+    task = await svc.start_work(task_id)
+    payload = TaskOut.model_validate(task).model_dump(mode="json")
+    await manager.broadcast("task_updated", payload)
+    return task
+
+
 @router.post("/{task_id}/reopen", response_model=ReopenOut, summary="Reopen done task")
 async def reopen_task(task_id: int, db: Session = Depends(get_db)) -> Any:
     """Return task to inbox. Removes Telegram reaction and reply message (if sent by app).

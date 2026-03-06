@@ -1,0 +1,97 @@
+name: Release Desktop
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Build target
+        required: false
+        default: nsis
+        type: choice
+        options:
+          - nsis
+          - all
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Validate tag matches desktop version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ github.ref_name }}".TrimStart('v')
+          $pkgVersion = node -p "require('./apps/desktop/package.json').version"
+          if ($tagVersion -ne $pkgVersion) {
+            throw "Tag version '$tagVersion' does not match apps/desktop/package.json version '$pkgVersion'"
+          }
+
+      - name: Prepare Python backend build env
+        shell: pwsh
+        run: |
+          python -m venv "services/api/.venv"
+          & "services/api/.venv/Scripts/python.exe" -m pip install --upgrade pip
+          & "services/api/.venv/Scripts/pip.exe" install -r "services/api/requirements.txt"
+          & "services/api/.venv/Scripts/pip.exe" install pyinstaller
+
+      - name: Build backend.exe (PyInstaller)
+        shell: pwsh
+        working-directory: services/api
+        run: |
+          & ".venv/Scripts/pyinstaller.exe" backend.spec --distpath dist --workpath build --noconfirm
+
+      - name: Install desktop dependencies
+        shell: pwsh
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Build renderer and electron bundles
+        shell: pwsh
+        working-directory: apps/desktop
+        run: npm run build
+
+      - name: Publish release via electron-builder
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          $target = "${{ github.event.inputs.target }}"
+          if ([string]::IsNullOrWhiteSpace($target)) { $target = "nsis" }
+          if ($target -eq "all") {
+            npx electron-builder --win --publish always
+          } else {
+            npx electron-builder --win --config.win.target=nsis --publish always
+          }
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.yml
+            apps/desktop/release/*.blockmap
+          if-no-files-found: warn

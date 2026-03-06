@@ -3,6 +3,7 @@ export interface AppSettings {
   tg_mention_handles: string       // comma-separated, e.g. "@alice,@bob"
   tg_monitored_chat_ids: string    // comma-separated chat IDs
   tg_monitored_thread_ids: string  // comma-separated thread IDs
+  tg_context_lift_enabled: boolean // use parent context for short ping-replies
 
   // Reactions
   done_reaction: string

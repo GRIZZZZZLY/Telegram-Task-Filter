@@ -1,174 +1,77 @@
-# Установка и первый запуск
+# Setup and First Run
+
+## Install options
+
+### Option A — NSIS installer (recommended)
+
+1. Download `TG-Focus-Filter-*-setup.exe` from Releases
+2. Install app
+3. Launch TG Focus Filter
+
+Why recommended:
+
+- supports in-app auto-update flow
+- standard uninstall via Windows apps list
+
+### Option B — Portable
+
+1. Download `TG-Focus-Filter-*-portable.exe`
+2. Run directly
+
+Portable limitation:
+
+- update is manual (download new file)
 
 ---
 
-## Вариант 1 — Portable `.exe` (рекомендуется)
+## First run
 
-### Требования
+On first start, app creates data directory:
 
-- Windows 10/11 x64
-- Telegram-аккаунт с API credentials ([my.telegram.org/apps](https://my.telegram.org/apps))
-
-### Шаги
-
-1. Скачать `TG-Focus-Filter-*-portable.exe` из раздела Releases
-2. Положить файл в любую папку (например `C:\Tools\TGFilter\`)
-3. Запустить `.exe` двойным кликом
-4. Дождаться запуска (первый старт ~10–15 секунд — распаковка backend)
-5. Пройти авторизацию в Telegram через интерфейс приложения
-
-Подробнее об авторизации: [AUTH_GUIDE.md](AUTH_GUIDE.md)
-
-### Что создаётся автоматически
-
-При первом запуске Electron создаёт папку данных:
-
-```
+```text
 %APPDATA%\tg-focus-filter-desktop\
-├── .env                  # конфигурация (создаётся с дефолтами)
-├── sessions\             # папка для Telethon сессии
-└── data\                 # папка для SQLite базы
+├── .env
+├── sessions\
+└── data\
 ```
 
----
+Then complete Telegram auth in app UI.
 
-## Вариант 2 — NSIS установщик
-
-1. Скачать `TG-Focus-Filter-*-setup.exe`
-2. Запустить установщик, выбрать папку установки
-3. Запустить через ярлык на рабочем столе или в меню Пуск
+Guide: `docs/AUTH_GUIDE.md`
 
 ---
 
-## Настройка после установки
+## Basic post-install setup
 
-### Обязательно: Telegram credentials
-
-Если авторизация через UI не работает — заполнить `.env` вручную:
-
-**Путь:** `%APPDATA%\tg-focus-filter-desktop\.env`
-
-```env
-TG_API_ID=1234567
-TG_API_HASH=abc123def456abc123def456abc123de
-TG_PHONE=+79001234567
-```
-
-Перезапустить приложение после изменения.
-
-### Настройка чатов для мониторинга
-
-1. Открыть **Настройки** (иконка шестерёнки в TopBar)
-2. Раздел **Telegram** → **Отслеживаемые чаты**
-3. Выбрать нужные чаты из списка
-4. Нажать **«Применить»** (перезапускает слушатель)
-
-> Если ни один чат не выбран — слушаются все чаты.
-
-### Настройка правил фильтрации
-
-Правила хранятся в файле `shared/rules/default_rules.yaml` (в папке установки или в корне проекта для dev).
-
-Пример правила:
-
-```yaml
-- id: mention_me
-  name: Mention @myhandle
-  enabled: true
-  priority: 100
-  when:
-    mention: "@myhandle"
-  then:
-    create_task: true
-    priority: high
-```
-
-Правила перечитываются автоматически при каждом новом сообщении — перезапуск не нужен.
+1. Open **Settings**
+2. Configure mention handles
+3. Select monitored chats/threads
+4. Save settings and apply listener restart when required
 
 ---
 
-## Управление окном
+## App updates
 
-| Действие | Способ |
-|---|---|
-| Свернуть в taskbar | Кнопка `[−]` (правый верхний угол) |
-| Развернуть / восстановить | Кнопка `[⬜]` |
-| Свернуть в трей | Кнопка `[×]` → «Свернуть в трей» |
-| Закрыть полностью | Кнопка `[×]` → «Закрыть полностью» |
-| Закрепить поверх окон | Кнопка 📌 в TopBar |
-| Показать из трея | Клик по иконке в трее |
+For NSIS-installed app:
 
----
+`Settings -> Обновления приложения`
 
-## Работа с задачами
+- Check for updates
+- Download update
+- Restart and install
 
-### Вкладки
+For portable app:
 
-- **Inbox** — активные задачи
-- **Done** — выполненные
-- **Snoozed** — отложенные
-
-### Действия с задачей
-
-| Действие | Результат |
-|---|---|
-| Нажать ✓ (выполнить) | Задача уходит в Done, через 5 сек отправляется реакция 👍 в Telegram |
-| Нажать ↩ (отменить) | Задача возвращается в Inbox, реакция убирается |
-| Нажать 💤 (отложить) | Задача уходит в Snoozed на выбранное время |
-| Нажать ↑↓ (приоритет) | Меняет приоритет (low / medium / high) |
-
-### Окно отмены
-
-После выполнения задачи есть **5 секунд** для отмены (кнопка «Отмена» в уведомлении). После этого реакция отправляется в Telegram.
+- manually download and replace executable
 
 ---
 
-## Настройки приложения
+## Troubleshooting
 
-Открыть: кнопка ⚙ в TopBar → экран Настройки.
-
-| Раздел | Что настраивается |
-|---|---|
-| **Telegram** | @handles для упоминаний, отслеживаемые чаты и треды |
-| **Фильтры** | Игнорировать свои сообщения, только с упоминанием, минимальная длина |
-| **Реакция** | Emoji реакции, текст ответа, задержка отправки |
-| **Очистка** | Авто-удаление выполненных через N дней |
-| **Внешний вид** | Звук уведомлений, компактный режим |
-
-### Кнопки сохранения
-
-- **«Сохранить»** — сохраняет настройки. Большинство применяются сразу (без перезапуска).
-- **«Применить»** — сохраняет + перезапускает слушатель Telegram. **Обязательно** после изменения списка отслеживаемых чатов.
-
----
-
-## Автозапуск с Windows
-
-Правый клик по иконке в трее → **«Запускать с Windows»**.
-
----
-
-## Удаление
-
-### Portable версия
-
-1. Закрыть приложение полностью (трей → «Закрыть полностью»)
-2. Удалить `.exe` файл
-3. Опционально: удалить данные `%APPDATA%\tg-focus-filter-desktop\`
-
-### NSIS версия
-
-Панель управления → Программы → TG Focus Filter → Удалить.
-
----
-
-## Технические детали
-
-| Параметр | Значение |
-|---|---|
-| Backend URL | `http://localhost:8787` |
-| WebSocket | `ws://localhost:8787/ws/tasks` |
-| Данные | `%APPDATA%\tg-focus-filter-desktop\` |
-| Сессия | `%APPDATA%\tg-focus-filter-desktop\sessions\user.session` |
-| База данных | `%APPDATA%\tg-focus-filter-desktop\data\focus_filter.db` |
-| Конфигурация | `%APPDATA%\tg-focus-filter-desktop\.env` |
+- Backend not responding on startup:
+  - restart app
+  - check `%APPDATA%\tg-focus-filter-desktop\logs\`
+- Wrong time in UI:
+  - app uses device timezone, verify OS timezone settings
+- Auth lost after reinstall:
+  - verify `%APPDATA%\tg-focus-filter-desktop\sessions\user.session`

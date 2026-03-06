@@ -98,9 +98,10 @@ async def _commit_task(db, task, settings, manager) -> None:
     try:
         # Hard safety check: never send reaction/reply unless source message
         # still contains one of our configured mention handles.
+        mention_check_message_id = task.trigger_message_id or task.source_message_id or 0
         allowed = await tg.message_mentions_handles(
             chat_id=task.chat_id or "",
-            message_id=task.source_message_id or 0,
+            message_id=mention_check_message_id,
             mention_handles=settings.get_mention_handles(),
         )
         if not allowed:
@@ -120,6 +121,7 @@ async def _commit_task(db, task, settings, manager) -> None:
                     "guard": "blocked_no_mention",
                     "chat_id": task.chat_id,
                     "source_message_id": task.source_message_id,
+                    "trigger_message_id": task.trigger_message_id,
                     "ts": datetime.now(timezone.utc).isoformat(),
                 }),
             ))

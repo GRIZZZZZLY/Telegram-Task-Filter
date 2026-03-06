@@ -65,5 +65,7 @@ export function getStats(params: GetStatsParams): Promise<StatsResponse> {
   const q = new URLSearchParams({ period: params.period })
   if (params.from_date) q.set('from_date', params.from_date)
   if (params.to_date)   q.set('to_date',   params.to_date)
+  const deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone
+  if (deviceTz) q.set('tz', deviceTz)
   return apiFetch<StatsResponse>(`/stats?${q.toString()}`)
 }

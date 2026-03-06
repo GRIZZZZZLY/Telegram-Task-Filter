@@ -20,12 +20,17 @@ class TaskOut(BaseModel):
     chat_id: Optional[str] = None
     thread_id: Optional[str] = None
     source_message_id: Optional[int] = None
+    trigger_message_id: Optional[int] = None
     sender_id: Optional[str] = None
     sender_username: Optional[str] = None
     committed_at: Optional[datetime] = None
     snoozed_until: Optional[datetime] = None
     sort_order: Optional[int] = None
     custom_reply: Optional[str] = None
+    in_progress: bool = False
+    work_started_at: Optional[datetime] = None
+    source_changed: bool = False
+    source_edited_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -82,6 +87,7 @@ class SettingsOut(BaseModel):
     tg_mention_handles: str
     tg_monitored_chat_ids: str
     tg_monitored_thread_ids: str
+    tg_context_lift_enabled: bool
     # Reactions
     done_reaction: str
     done_send_reply: bool
@@ -110,6 +116,7 @@ class SettingsIn(BaseModel):
     tg_mention_handles: Optional[str] = None
     tg_monitored_chat_ids: Optional[str] = None
     tg_monitored_thread_ids: Optional[str] = None
+    tg_context_lift_enabled: Optional[bool] = None
     done_reaction: Optional[str] = None
     done_send_reply: Optional[bool] = None
     done_reply_text: Optional[str] = None

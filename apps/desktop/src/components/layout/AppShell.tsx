@@ -285,12 +285,16 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
         />
 
         {/* Tabs */}
-        <div className="flex items-center justify-center border-b border-border/30 px-4 py-2 backdrop-blur-sm">
-          <FilterTabs
-            active={tab}
-            onChange={setTab}
-            counts={{ inbox: inboxCount, done: tabCounts.done, snoozed: tabCounts.snoozed }}
-          />
+        <div className="flex items-center justify-center border-b border-border/30 px-2 py-2 backdrop-blur-sm">
+          <div className="w-full max-w-full overflow-x-auto">
+            <div className="mx-auto w-max">
+              <FilterTabs
+                active={tab}
+                onChange={setTab}
+                counts={{ inbox: inboxCount, done: tabCounts.done, snoozed: tabCounts.snoozed }}
+              />
+            </div>
+          </div>
         </div>
 
         {/* Content */}

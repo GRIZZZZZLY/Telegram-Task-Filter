@@ -11,6 +11,7 @@ export interface Task {
   // Backward compatibility for old WS payloads
   source_chat?: string
   source_message_id: number
+  trigger_message_id?: number | null
   sender_id?: string | null
   sender_username?: string | null
   priority: TaskPriority
@@ -20,6 +21,10 @@ export interface Task {
   snoozed_until: string | null
   sort_order: number | null
   custom_reply: string | null
+  in_progress: boolean
+  work_started_at: string | null
+  source_changed: boolean
+  source_edited_at: string | null
 }
 
 export interface TaskListResponse {

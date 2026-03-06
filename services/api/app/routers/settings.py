@@ -20,6 +20,7 @@ def get_all_settings() -> SettingsOut:
         tg_mention_handles=handles,
         tg_monitored_chat_ids=s.tg_monitored_chat_ids,
         tg_monitored_thread_ids=s.tg_monitored_thread_ids,
+        tg_context_lift_enabled=s.tg_context_lift_enabled,
         done_reaction=s.done_reaction,
         done_send_reply=s.done_send_reply,
         done_reply_text=s.done_reply_text,

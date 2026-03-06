@@ -1,8 +1,8 @@
 /**
  * Converts raw backend log lines into human-readable friendly entries.
  *
- * Format produced by MskFormatter:
- *   "2026-02-27 16:33:29,123 MSK INFO     app.workers.tg_listener | message"
+ * Format produced by backend formatter:
+ *   "2026-02-27 16:33:29,123 UTC INFO     app.workers.tg_listener | message"
  *
  * Noisy low-value lines (individual MSG passes, sub-steps already covered
  * by a higher-level event) are dropped so the friendly view stays clean.
@@ -18,6 +18,30 @@ export interface FriendlyEntry {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function toDeviceTime(dateStr: string, timeStr: string, tzTag: string | undefined): string {
+  // For legacy lines without tz tag, preserve raw HH:MM:SS to avoid wrong shifts.
+  if (!tzTag) return timeStr
+
+  const [y, m, d] = dateStr.split('-').map((v) => Number(v))
+  const [hh, mm, ss] = timeStr.split(':').map((v) => Number(v))
+  if ([y, m, d, hh, mm, ss].some((n) => Number.isNaN(n))) return timeStr
+
+  let utcMs: number
+  if (tzTag === 'UTC') {
+    utcMs = Date.UTC(y, m - 1, d, hh, mm, ss)
+  } else if (tzTag === 'MSK') {
+    // Legacy backend logs were emitted in MSK (UTC+3, no DST).
+    utcMs = Date.UTC(y, m - 1, d, hh - 3, mm, ss)
+  } else {
+    return timeStr
+  }
+  return new Date(utcMs).toLocaleTimeString('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
 
 function shortChatId(id: string): string {
   const n = parseInt(id, 10)
@@ -38,13 +62,14 @@ function pluralFields(n: number): string {
 // ── Main parser ───────────────────────────────────────────────────────────────
 
 function parseLine(raw: string): FriendlyEntry | null {
-  // Match both "MSK" and legacy format (without MSK)
+  // Match both timezone-tagged logs (UTC/MSK) and legacy format without tag.
   const m = raw.match(
-    /^(\d{4}-\d{2}-\d{2} )(\d{2}:\d{2}:\d{2}),\d+ (?:MSK )?(\w+)\s+\S+ \| (.+)$/,
+    /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}),\d+ (?:(UTC|MSK) )?(\w+)\s+\S+ \| (.+)$/,
   )
   if (!m) return null
 
-  const [, , time, levelStr, msg] = m
+  const [, dateStr, timeRaw, tzTag, levelStr, msg] = m
+  const time = toDeviceTime(dateStr, timeRaw, tzTag)
   const isError   = levelStr === 'ERROR'
   const isWarning = levelStr === 'WARNING'
 

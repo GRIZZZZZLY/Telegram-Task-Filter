@@ -22,8 +22,8 @@ from pathlib import Path
 # ── Root logging setup ────────────────────────────────────────────────────────
 # Must run before any logger.info() calls in the app.
 # basicConfig is a no-op if handlers already exist, so safe to call here.
-from .tz import MskFormatter as _MskFormatter
-_fmt = _MskFormatter("%(asctime)s MSK %(levelname)-8s %(name)s | %(message)s")
+from .tz import UtcFormatter as _UtcFormatter
+_fmt = _UtcFormatter("%(asctime)s UTC %(levelname)-8s %(name)s | %(message)s")
 
 _root = logging.getLogger()
 if not _root.handlers:

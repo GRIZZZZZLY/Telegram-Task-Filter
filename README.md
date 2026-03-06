@@ -1,18 +1,28 @@
 # TG Focus Filter
 
-Десктопное приложение для Windows — личный «фильтр внимания» для Telegram.  
-Слушает выбранные чаты, извлекает задачи по правилам и показывает их в компактном окне поверх всех окон.
+Windows desktop-приложение для фильтрации рабочих задач из Telegram.
+
+- Слушает выбранные чаты/ветки
+- Создаёт задачи по rules + mentions
+- Поддерживает `Done`, `Snooze`, `В работу (👀)`, `Pin`
+- Синхронизирует редактирования сообщений (real-time + catch-up)
+- Имеет PIN-защиту, статистику, диагностику и автообновление (NSIS)
 
 ---
 
-## Что это
+## Текущее состояние
 
-- Всегда-поверх-окно (always-on-top) с плоским списком задач
-- Задачи создаются автоматически из входящих сообщений Telegram по YAML-правилам
-- Поддержка @упоминаний, ключевых слов, фильтрации по чатам и тредам
-- Реакция 👍 и ответ «Готово ✅» отправляются в чат при выполнении задачи
-- Откладывание задач (snooze), приоритеты, авто-очистка
-- Полностью портабельный `.exe` — не требует установки Python или Node.js
+Проект активно развивается. Основные реализованные функции:
+
+- Telegram auth + session management
+- Task lifecycle: inbox/done/snoozed/reopen/dismiss
+- Staged commit (окно отмены перед `Done`)
+- Пер-чат фильтрация веток (`chat_id:thread_id`)
+- Context lift для коротких reply-пингов (переключаемо в Settings)
+- Синхронизация отредактированных сообщений в задачах (`task_updated`)
+- Work marker: кнопка `В работу / В работе` + реакция 👀
+- Auto-update UI и API в desktop (check/download/install)
+- Release workflow для тегов `v*` (GitHub Actions)
 
 ---
 
@@ -20,134 +30,83 @@
 
 | Слой | Технологии |
 |---|---|
-| Десктоп | Electron 40, React 18, TypeScript, Tailwind CSS |
-| Backend | Python 3.13, FastAPI, Uvicorn |
-| Telegram | Telethon (MTProto) |
-| База данных | SQLite + SQLAlchemy |
-| Правила | YAML (rule-based, без AI) |
-| Сборка | PyInstaller (backend) + electron-builder (frontend) |
+| Desktop | Electron 40, React 18, TypeScript, Tailwind |
+| Backend | Python 3.13, FastAPI, SQLAlchemy, SQLite |
+| Telegram | Telethon |
+| Build | PyInstaller + electron-builder |
+| Delivery | GitHub Actions (tag-based releases) |
 
 ---
 
 ## Быстрый старт
 
-### Готовый `.exe` (рекомендуется)
+### Запуск готовой сборки
 
-1. Скачать `TG-Focus-Filter-*-portable.exe` из раздела Releases
-2. Запустить `.exe`
-3. При первом запуске пройти авторизацию в Telegram через интерфейс приложения
+1. Скачайте `TG-Focus-Filter-*-setup.exe` (рекомендуется для автообновлений) или `*-portable.exe`.
+2. Запустите приложение.
+3. Пройдите Telegram-авторизацию в UI.
 
-Подробнее: [docs/SETUP.md](docs/SETUP.md)
+Подробно: `docs/SETUP.md`
 
 ### Сборка из исходников
 
 ```powershell
-# Предварительно: Python 3.13, Node.js v24, venv с зависимостями
 build.bat
-# Результат: apps/desktop/release/TG-Focus-Filter-*-portable.exe
 ```
 
-Подробнее: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+`build.bat` теперь умеет:
+
+- выбор target: portable / nsis / all
+- bump версии перед сборкой: none / patch / minor / major / custom
+
+Примеры:
+
+```powershell
+build.bat all patch
+build.bat nsis 0.2.0
+build.bat portable none
+```
+
+Подробно: `docs/DEVELOPMENT.md`
 
 ---
 
-## Структура проекта
+## Автообновления
 
-```
-Telegram-Task-Filter/
-├── .env                          # Конфигурация (не в git)
-├── .env.example                  # Шаблон конфигурации
-├── build.bat                     # Точка входа сборки
-├── shared/
-│   └── rules/
-│       └── default_rules.yaml    # Правила фильтрации сообщений
-├── services/
-│   └── api/                      # Python FastAPI backend
-│       ├── app/
-│       │   ├── main.py           # FastAPI app, CORS, lifespan
-│       │   ├── config.py         # Настройки (pydantic-settings)
-│       │   ├── routers/          # HTTP роутеры
-│       │   ├── services/         # Бизнес-логика (Telegram)
-│       │   └── workers/          # Фоновые задачи asyncio
-│       ├── backend.spec          # PyInstaller конфиг
-│       └── tests/                # pytest тесты
-├── apps/
-│   └── desktop/                  # Electron + React frontend
-│       ├── electron/
-│       │   ├── main.ts           # Electron main process
-│       │   └── preload.ts        # contextBridge API
-│       └── src/
-│           ├── components/       # React компоненты
-│           ├── api/              # HTTP клиенты
-│           └── hooks/            # Кастомные хуки
-├── scripts/
-│   ├── build.ps1                 # PowerShell скрипт сборки
-│   └── auth_telegram.py          # CLI авторизация (dev)
-└── docs/
-    ├── AUTH_GUIDE.md             # Шпаргалка по авторизации
-    ├── SETUP.md                  # Установка и первый запуск
-    └── DEVELOPMENT.md            # Гайд для разработчика
-```
+- Поддерживаются для **NSIS-installed** версии
+- Для portable — ручное обновление
+- В UI: `Настройки -> Обновления приложения`
+  - Проверить
+  - Скачать
+  - Перезапустить и установить
 
----
-
-## Хранение данных
-
-**Packaged (`.exe`):** `%APPDATA%\tg-focus-filter-desktop\`
-
-```
-tg-focus-filter-desktop\
-├── .env                  # конфигурация
-├── sessions\
-│   └── user.session      # Telethon сессия (SQLite)
-└── data\
-    └── focus_filter.db   # база задач (SQLite)
-```
-
-**Dev режим:** те же папки в корне проекта (`D:\Telegram-Task-Filter\`).
-
----
-
-## Правила фильтрации
-
-Файл `shared/rules/default_rules.yaml`:
-
-```yaml
-- id: mention_me
-  name: Mention @handle
-  enabled: true
-  priority: 100          # выше = проверяется первым
-  when:
-    mention: "@myhandle" # case-insensitive
-    keywords: ["todo"]   # ANY из ключевых слов (опционально)
-    chat_id: "-100123"   # ID чата (опционально)
-    thread_id: "173"     # ID треда (опционально)
-  then:
-    create_task: true
-    priority: high       # low | medium | high
-```
-
-Логика: все условия `when` — AND. Первое совпавшее правило (по убыванию `priority`) определяет результат.
-
----
-
-## API Backend
-
-Backend запускается на `http://localhost:8787`.
-
-| Группа | Эндпоинты |
-|---|---|
-| Здоровье | `GET /health` |
-| Авторизация | `GET /auth/status`, `POST /auth/start`, `POST /auth/verify` |
-| Задачи | `GET /tasks`, `POST /tasks/{id}/done`, `POST /tasks/{id}/reopen`, `POST /tasks/{id}/snooze`, `PATCH /tasks/{id}/priority`, `DELETE /tasks/done` |
-| Настройки | `GET /settings`, `PATCH /settings` |
-| Telegram | `GET /telegram/chats`, `GET /telegram/threads/{chat_id}`, `POST /telegram/restart-listener` |
-| WebSocket | `WS /ws/tasks` |
+Тех. детали и релиз-процесс: `docs/RELEASE_AND_UPDATES.md`
 
 ---
 
 ## Документация
 
-- [docs/AUTH_GUIDE.md](docs/AUTH_GUIDE.md) — шпаргалка по авторизации в Telegram
-- [docs/SETUP.md](docs/SETUP.md) — установка и первый запуск
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — разработка, тесты, сборка
+- `docs/SETUP.md` — установка и первый запуск
+- `docs/AUTH_GUIDE.md` — Telegram auth flow
+- `docs/DEVELOPMENT.md` — разработка, сборка, тесты
+- `docs/RELEASE_AND_UPDATES.md` — auto-update + CI/CD release
+- `docs/ROADMAP.md` — планы доработок и приоритеты
+
+---
+
+## Структура репозитория
+
+```text
+Telegram-Task-Filter/
+├── apps/desktop/
+│   ├── electron/              # main/preload
+│   └── src/                   # React UI
+├── services/api/
+│   ├── app/                   # FastAPI app
+│   ├── tests/                 # pytest
+│   └── backend.spec           # PyInstaller config
+├── docs/
+├── scripts/
+├── ai-docs/plan/
+└── build.bat
+```

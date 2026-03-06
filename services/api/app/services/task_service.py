@@ -96,6 +96,8 @@ class TaskService:
         task.status = TaskStatus.done
         task.updated_at = now
         task.committed_at = now  # marks "reaction pending / sent"
+        task.in_progress = False
+        task.work_started_at = None
         if custom_reply is not None:
             task.custom_reply = custom_reply.strip() or None
 
@@ -162,6 +164,8 @@ class TaskService:
         task.status = TaskStatus.inbox
         task.committed_at = None
         task.custom_reply = None
+        task.in_progress = False
+        task.work_started_at = None
         task.updated_at = now
 
         # Delete all reaction_sent events for this task so that
@@ -217,6 +221,8 @@ class TaskService:
 
         task.status = TaskStatus.snoozed
         task.snoozed_until = wake_at
+        task.in_progress = False
+        task.work_started_at = None
         task.updated_at = now
 
         self.db.add(Event(
@@ -340,6 +346,93 @@ class TaskService:
             task.sort_order = (min_pinned - 1) if min_pinned is not None else -1
             logger.info("Task pinned | id=%d sort_order=%d", task.id, task.sort_order)
         task.updated_at = _now()
+        self.db.commit()
+        self.db.refresh(task)
+        return task
+
+    # ── Work-in-progress marker (👀) ───────────────────────────────────────
+
+    async def start_work(self, task_id: int) -> Task:
+        """Toggle inbox task work state ("В работу" / "В работе").
+
+        Behavior:
+          - Works only for inbox tasks.
+          - Toggle ON  -> in_progress=True, work_started_at=now, send 👀 reaction.
+          - Toggle OFF -> in_progress=False, work_started_at=None, remove own reaction.
+
+        Raises:
+            HTTPException 404: task not found.
+            HTTPException 409: task is not in inbox.
+        """
+        task = self._get_or_404(task_id)
+        if task.status != TaskStatus.inbox:
+            raise HTTPException(status_code=409, detail=f"Task {task_id} is not in inbox")
+
+        enable = not bool(task.in_progress)
+
+        mention_allowed = True
+        reaction_attempted = False
+        reaction_removed = False
+
+        if task.chat_id and task.source_message_id:
+            tg = TelegramService()
+            try:
+                if enable:
+                    from ..config import get_settings
+
+                    settings = get_settings()
+                    mention_check_message_id = task.trigger_message_id or task.source_message_id
+                    mention_allowed = await tg.message_mentions_handles(
+                        chat_id=task.chat_id,
+                        message_id=mention_check_message_id,
+                        mention_handles=settings.get_mention_handles(),
+                    )
+
+                    if mention_allowed:
+                        reaction_attempted = True
+                        await tg.send_done(
+                            chat_id=task.chat_id,
+                            message_id=task.source_message_id,
+                            reaction="👀",
+                            send_reply=False,
+                            reply_text="",
+                        )
+                    else:
+                        logger.warning(
+                            "Work reaction blocked (no mention) | task_id=%d chat=%s trigger_msg=%s",
+                            task.id,
+                            task.chat_id,
+                            task.trigger_message_id or task.source_message_id,
+                        )
+                else:
+                    reaction_attempted = True
+                    remove_result = await tg.remove_done(
+                        chat_id=task.chat_id,
+                        message_id=task.source_message_id,
+                        reply_message_id=None,
+                    )
+                    reaction_removed = bool(remove_result.get("reaction_removed"))
+            except Exception as exc:
+                logger.error("start_work reaction failed | task_id=%d err=%s", task.id, exc)
+
+        now = _now()
+        task.in_progress = enable
+        task.work_started_at = now if enable else None
+        task.updated_at = now
+
+        self.db.add(Event(
+            task_id=task.id,
+            type=EventType.updated,
+            payload_json=json.dumps({
+                "action": "work_started" if enable else "work_stopped",
+                "reaction": "👀",
+                "reaction_attempted": reaction_attempted,
+                "mention_allowed": mention_allowed,
+                "reaction_removed": reaction_removed,
+                "ts": now.isoformat(),
+            }),
+            ts=now,
+        ))
         self.db.commit()
         self.db.refresh(task)
         return task

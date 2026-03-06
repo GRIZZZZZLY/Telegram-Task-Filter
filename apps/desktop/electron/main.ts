@@ -19,6 +19,15 @@ import { deflateSync } from 'zlib'
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface WindowState { x: number; y: number; width: number; height: number }
 
+interface UpdaterState {
+  status: 'idle' | 'unsupported' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  currentVersion: string
+  availableVersion: string | null
+  progress: number
+  message: string | null
+  checkedAt: string | null
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // vite-plugin-electron sets this env var when the dev server is ready.
@@ -59,6 +68,7 @@ DONE_COMMIT_DELAY_SECONDS=5
 FILTER_IGNORE_OWN=true
 FILTER_MIN_TEXT_LENGTH=0
 FILTER_STRICT_MENTIONS=true
+TG_CONTEXT_LIFT_ENABLED=false
 
 # Auto-cleanup (0 = disabled)
 CLEANUP_DONE_AFTER_DAYS=0
@@ -103,6 +113,7 @@ function ensureUserDataDir(): void {
       'FILTER_IGNORE_OWN=true',
       'FILTER_MIN_TEXT_LENGTH=0',
       'FILTER_STRICT_MENTIONS=true',
+      'TG_CONTEXT_LIFT_ENABLED=false',
       '',
       '# Auto-cleanup (0 = disabled)',
       'CLEANUP_DONE_AFTER_DAYS=0',
@@ -128,6 +139,21 @@ let notificationsEnabled = true
 let backendProc: ChildProcess | null = null
 let saveStateTimeout: ReturnType<typeof setTimeout> | null = null
 let logStream: fs.WriteStream | null = null
+let updaterState: UpdaterState = {
+  status: 'idle',
+  currentVersion: app.getVersion(),
+  availableVersion: null,
+  progress: 0,
+  message: null,
+  checkedAt: null,
+}
+let autoUpdaterRef: {
+  autoDownload: boolean
+  checkForUpdates: () => Promise<unknown>
+  downloadUpdate: () => Promise<unknown>
+  quitAndInstall: () => void
+  on: (event: string, listener: (...args: unknown[]) => void) => void
+} | null = null
 
 // ── File logging ─────────────────────────────────────────────────────────────
 
@@ -407,6 +433,100 @@ async function loadWithRetry(win: BrowserWindow, url: string, attempts = 10, del
   }
 }
 
+function broadcastUpdaterState(): void {
+  if (!win) return
+  win.webContents.send('updates:state', updaterState)
+}
+
+function setUpdaterState(patch: Partial<UpdaterState>): void {
+  updaterState = {
+    ...updaterState,
+    ...patch,
+    currentVersion: app.getVersion(),
+  }
+  broadcastUpdaterState()
+}
+
+async function setupAutoUpdater(): Promise<void> {
+  if (!app.isPackaged) {
+    setUpdaterState({ status: 'unsupported', message: 'Auto update disabled in dev mode' })
+    return
+  }
+
+  try {
+    const { autoUpdater } = await import('electron-updater')
+    autoUpdaterRef = autoUpdater as typeof autoUpdaterRef
+    if (!autoUpdaterRef) {
+      setUpdaterState({ status: 'unsupported', message: 'Updater unavailable' })
+      return
+    }
+
+    autoUpdaterRef.autoDownload = false
+
+    autoUpdaterRef.on('checking-for-update', () => {
+      setUpdaterState({ status: 'checking', message: 'Проверка обновлений…', checkedAt: new Date().toISOString() })
+    })
+
+    autoUpdaterRef.on('update-available', (info: unknown) => {
+      const ver = typeof info === 'object' && info && 'version' in info
+        ? String((info as { version: unknown }).version)
+        : null
+      setUpdaterState({
+        status: 'available',
+        availableVersion: ver,
+        progress: 0,
+        message: ver ? `Доступна версия ${ver}` : 'Доступно обновление',
+      })
+    })
+
+    autoUpdaterRef.on('update-not-available', () => {
+      setUpdaterState({
+        status: 'not-available',
+        availableVersion: null,
+        progress: 0,
+        message: 'Установлена последняя версия',
+      })
+    })
+
+    autoUpdaterRef.on('download-progress', (progressObj: unknown) => {
+      const percent = typeof progressObj === 'object' && progressObj && 'percent' in progressObj
+        ? Number((progressObj as { percent: unknown }).percent)
+        : 0
+      setUpdaterState({
+        status: 'downloading',
+        progress: Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0,
+        message: 'Загрузка обновления…',
+      })
+    })
+
+    autoUpdaterRef.on('update-downloaded', (info: unknown) => {
+      const ver = typeof info === 'object' && info && 'version' in info
+        ? String((info as { version: unknown }).version)
+        : updaterState.availableVersion
+      setUpdaterState({
+        status: 'downloaded',
+        availableVersion: ver,
+        progress: 100,
+        message: ver ? `Обновление ${ver} готово к установке` : 'Обновление готово к установке',
+      })
+    })
+
+    autoUpdaterRef.on('error', (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[Updater] Error:', msg)
+      setUpdaterState({ status: 'error', message: msg })
+    })
+
+    // Background check shortly after startup
+    setTimeout(() => {
+      void autoUpdaterRef?.checkForUpdates()
+    }, 5000)
+  } catch {
+    autoUpdaterRef = null
+    setUpdaterState({ status: 'unsupported', message: 'Updater not configured' })
+  }
+}
+
 // ── Window ────────────────────────────────────────────────────────────────────
 
 function createWindow(): void {
@@ -560,6 +680,42 @@ ipcMain.on('app:open-logs-folder', () => {
   void shell.openPath(logsDir)
 })
 
+ipcMain.handle('updates:get-state', () => updaterState)
+
+ipcMain.handle('updates:check', async () => {
+  if (!autoUpdaterRef) {
+    setUpdaterState({ status: 'unsupported', message: 'Updater unavailable in this build' })
+    return updaterState
+  }
+  try {
+    await autoUpdaterRef.checkForUpdates()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    setUpdaterState({ status: 'error', message: msg })
+  }
+  return updaterState
+})
+
+ipcMain.handle('updates:download', async () => {
+  if (!autoUpdaterRef) {
+    setUpdaterState({ status: 'unsupported', message: 'Updater unavailable in this build' })
+    return updaterState
+  }
+  try {
+    setUpdaterState({ status: 'downloading', progress: 0, message: 'Загрузка обновления…' })
+    await autoUpdaterRef.downloadUpdate()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    setUpdaterState({ status: 'error', message: msg })
+  }
+  return updaterState
+})
+
+ipcMain.on('updates:install', () => {
+  if (!autoUpdaterRef) return
+  autoUpdaterRef.quitAndInstall()
+})
+
 ipcMain.handle('dialog:confirm', async (_event, message: string) => {
   if (!win) return false
   const result = await dialog.showMessageBox(win, {
@@ -628,45 +784,8 @@ app.whenReady().then(async () => {
   //    (shows a connecting screen internally and retries automatically)
   await loadApp()
 
-  // 4. Auto-update check (packaged only — skipped in dev to avoid errors)
-  if (app.isPackaged) {
-    try {
-      // electron-updater must be listed in dependencies and npm install run.
-      // Configure GitHub repo in package.json build.publish section.
-      const { autoUpdater } = await import('electron-updater')
-      autoUpdater.logger = null  // suppress noisy updater logs to stdout
-      autoUpdater.on('update-available', () => {
-        console.log('[Updater] Update available — downloading...')
-        if (Notification.isSupported()) {
-          new Notification({
-            title: 'Обновление доступно',
-            body: 'Загрузка новой версии TG Focus Filter...',
-            silent: true,
-          }).show()
-        }
-      })
-      autoUpdater.on('update-downloaded', () => {
-        console.log('[Updater] Update downloaded — ready to install')
-        if (Notification.isSupported()) {
-          const n = new Notification({
-            title: 'Обновление готово',
-            body: 'Нажмите для перезапуска и установки.',
-            silent: !soundEnabled,
-          })
-          n.on('click', () => { autoUpdater.quitAndInstall() })
-          n.show()
-        }
-      })
-      autoUpdater.on('error', (err: Error) => {
-        // Non-fatal: log but don't bother the user
-        console.error('[Updater] Error:', err.message)
-      })
-      await autoUpdater.checkForUpdatesAndNotify()
-    } catch {
-      // electron-updater not installed or GitHub not configured — skip silently
-      console.log('[Updater] electron-updater not available or not configured')
-    }
-  }
+  // 4. Configure updater API and background update checks
+  await setupAutoUpdater()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

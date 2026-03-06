@@ -12,7 +12,7 @@ import { useEffect, useState, useCallback } from 'react'
 import {
   ArrowLeft, Loader2, RefreshCw, Plus, X,
   MessageCircle, Filter, ThumbsUp, Trash2, Monitor, RotateCcw, History,
-  Terminal, FolderOpen, ShieldCheck,
+  Terminal, FolderOpen, ShieldCheck, Download, CheckCircle2,
 } from 'lucide-react'
 import { getSettings, updateSettings, restartListener, scanHistory } from '@/api/settings'
 import { fetchLogs } from '@/api/logs'
@@ -37,6 +37,29 @@ interface GuardCheckResult {
   ok_count: number
   rolled_back: number
   skipped: number
+}
+
+interface UpdateState {
+  status: 'idle' | 'unsupported' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  currentVersion: string
+  availableVersion: string | null
+  progress: number
+  message: string | null
+  checkedAt: string | null
+}
+
+function parseUpdateState(value: unknown): UpdateState | null {
+  if (!value || typeof value !== 'object') return null
+  const v = value as Partial<UpdateState>
+  if (typeof v.status !== 'string' || typeof v.currentVersion !== 'string') return null
+  return {
+    status: v.status as UpdateState['status'],
+    currentVersion: v.currentVersion,
+    availableVersion: typeof v.availableVersion === 'string' ? v.availableVersion : null,
+    progress: typeof v.progress === 'number' ? v.progress : 0,
+    message: typeof v.message === 'string' ? v.message : null,
+    checkedAt: typeof v.checkedAt === 'string' ? v.checkedAt : null,
+  }
 }
 
 // ── Valid Telegram reaction emojis ────────────────────────────────────────────
@@ -194,6 +217,7 @@ export function SettingsScreen({ onClose, pinSet, onPinChanged, onSaved }: Props
   const [guardResult, setGuardResult] = useState<GuardCheckResult | null>(null)
   const [guardError, setGuardError] = useState<string | null>(null)
   const [appVersion, setAppVersion] = useState<string | null>(null)
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null)
 
   // Logs state
   const [logsData, setLogsData] = useState<LogsResponse | null>(null)
@@ -215,6 +239,27 @@ export function SettingsScreen({ onClose, pinSet, onPinChanged, onSaved }: Props
   // Load app version once
   useEffect(() => {
     void window.electronAPI?.getVersion().then(setAppVersion)
+  }, [])
+
+  // Subscribe to auto-update state (Electron only)
+  useEffect(() => {
+    const api = window.electronAPI
+    if (!api?.updatesGetState || !api?.onUpdatesStateChanged) return
+
+    let active = true
+    void api.updatesGetState().then((state) => {
+      if (!active) return
+      setUpdateState(parseUpdateState(state))
+    })
+
+    const unsubscribe = api.onUpdatesStateChanged((state) => {
+      setUpdateState(parseUpdateState(state))
+    })
+
+    return () => {
+      active = false
+      unsubscribe?.()
+    }
   }, [])
 
   const loadSettings = useCallback(() => {
@@ -322,6 +367,37 @@ export function SettingsScreen({ onClose, pinSet, onPinChanged, onSaved }: Props
       setLogsLoading(false)
     }
   }, [logsLines, logsLevel, logsMode])
+
+  const handleCheckUpdates = useCallback(async () => {
+    try {
+      const state = await window.electronAPI?.updatesCheck?.()
+      if (state) setUpdateState(parseUpdateState(state))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setUpdateState((prev) => prev ? { ...prev, status: 'error', message: msg } : {
+        status: 'error',
+        currentVersion: appVersion ?? 'unknown',
+        availableVersion: null,
+        progress: 0,
+        message: msg,
+        checkedAt: new Date().toISOString(),
+      })
+    }
+  }, [appVersion])
+
+  const handleDownloadUpdate = useCallback(async () => {
+    try {
+      const state = await window.electronAPI?.updatesDownload?.()
+      if (state) setUpdateState(parseUpdateState(state))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setUpdateState((prev) => prev ? { ...prev, status: 'error', message: msg } : null)
+    }
+  }, [])
+
+  const handleInstallUpdate = useCallback(() => {
+    window.electronAPI?.updatesInstall?.()
+  }, [])
 
   const handleClearDone = useCallback(async () => {
     const ok = await nativeConfirm('Удалить все выполненные задачи?')
@@ -483,6 +559,16 @@ export function SettingsScreen({ onClose, pinSet, onPinChanged, onSaved }: Props
                 value={settings.filter_min_text_length}
                 onChange={(e) => patch('filter_min_text_length', Number(e.target.value))}
                 className="w-16 rounded-md border border-border/50 bg-background px-2 py-1 text-[12px] text-center outline-none focus:border-indigo-500"
+              />
+            </Row>
+
+            <Row
+              label="Контекст из reply"
+              hint="Если сообщение короткий пинг с @тегом, брать суть задачи из родительского сообщения"
+            >
+              <Toggle
+                checked={settings.tg_context_lift_enabled}
+                onChange={(v) => patch('tg_context_lift_enabled', v)}
               />
             </Row>
 
@@ -955,7 +1041,92 @@ export function SettingsScreen({ onClose, pinSet, onPinChanged, onSaved }: Props
             </Row>
           </Section>
 
-          {/* ── 7. Диагностика ──────────────────────────────────────────── */}
+          {/* ── 8. Обновления ───────────────────────────────────────────── */}
+          <Section icon={<Download className="h-4 w-4" />} title="Обновления приложения">
+            {window.electronAPI ? (
+              <>
+                <Row
+                  label="Текущая версия"
+                  hint={updateState?.availableVersion ? `Доступна версия ${updateState.availableVersion}` : undefined}
+                >
+                  <span className="text-[12px] text-muted-foreground">
+                    v{updateState?.currentVersion ?? appVersion ?? '—'}
+                  </span>
+                </Row>
+
+                {updateState?.message && (
+                  <p
+                    className={cn(
+                      'rounded-lg px-3 py-2 text-[11px]',
+                      updateState.status === 'error'
+                        ? 'bg-red-500/10 text-red-400'
+                        : 'bg-background/40 text-muted-foreground',
+                    )}
+                  >
+                    {updateState.message}
+                  </p>
+                )}
+
+                {updateState?.status === 'downloading' && (
+                  <div className="flex items-center gap-2">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted/30">
+                      <div
+                        className="h-full rounded-full bg-indigo-500 transition-all"
+                        style={{ width: `${Math.max(0, Math.min(100, updateState.progress))}%` }}
+                      />
+                    </div>
+                    <span className="w-10 text-right text-[11px] text-muted-foreground tabular-nums">
+                      {Math.round(updateState.progress)}%
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={handleCheckUpdates}
+                    disabled={updateState?.status === 'checking' || updateState?.status === 'downloading'}
+                    className="flex items-center gap-1.5 rounded-lg border border-indigo-500/30 px-3 py-1 text-[12px] text-indigo-400 transition-colors hover:bg-indigo-500/10 disabled:opacity-50"
+                  >
+                    {updateState?.status === 'checking'
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <RefreshCw className="h-3 w-3" />}
+                    Проверить обновления
+                  </button>
+
+                  {(updateState?.status === 'available' || updateState?.status === 'downloading') && (
+                    <button
+                      onClick={handleDownloadUpdate}
+                      disabled={updateState?.status === 'downloading'}
+                      className="flex items-center gap-1.5 rounded-lg border border-border/50 px-3 py-1 text-[12px] text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:opacity-50"
+                    >
+                      {updateState?.status === 'downloading'
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Download className="h-3 w-3" />}
+                      {updateState?.status === 'downloading' ? 'Загрузка…' : 'Скачать'}
+                    </button>
+                  )}
+
+                  {updateState?.status === 'downloaded' && (
+                    <button
+                      onClick={handleInstallUpdate}
+                      className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1 text-[12px] text-emerald-400 transition-colors hover:bg-emerald-500/10"
+                    >
+                      <CheckCircle2 className="h-3 w-3" />
+                      Перезапустить и установить
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-muted-foreground/70">
+                  Автообновление поддерживается для установленной версии (NSIS). Portable обновляется вручную.
+                </p>
+              </>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">Обновления доступны только в desktop-сборке Electron.</p>
+            )}
+          </Section>
+
+          {/* ── 9. Диагностика ──────────────────────────────────────────── */}
           <Section icon={<Terminal className="h-4 w-4" />} title="Диагностика">
 
             {/* ── Controls row ── */}

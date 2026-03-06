@@ -2,7 +2,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -60,6 +60,7 @@ class Task(Base):
     chat_id = Column(String(100), nullable=True, index=True)
     thread_id = Column(String(100), nullable=True, index=True)
     source_message_id = Column(Integer, nullable=True)
+    trigger_message_id = Column(Integer, nullable=True)
     sender_id = Column(String(100), nullable=True, index=True)
     sender_username = Column(String(100), nullable=True)
 
@@ -78,6 +79,14 @@ class Task(Base):
 
     # Custom reply text override (NULL = use settings default)
     custom_reply = Column(String(500), nullable=True)
+
+    # Work-in-progress marker ("seen / in work")
+    in_progress = Column(Boolean, nullable=False, default=False)
+    work_started_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Source state after Telegram message edits
+    source_changed = Column(Boolean, nullable=False, default=False)
+    source_edited_at = Column(DateTime(timezone=True), nullable=True)
 
     events = relationship("Event", back_populates="task", cascade="all, delete-orphan")
 

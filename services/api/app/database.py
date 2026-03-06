@@ -78,3 +78,23 @@ def _run_migrations() -> None:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN sender_username VARCHAR(100)"))
             import logging
             logging.getLogger(__name__).info("Migration: added tasks.sender_username")
+        if "trigger_message_id" not in existing:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN trigger_message_id INTEGER"))
+            import logging
+            logging.getLogger(__name__).info("Migration: added tasks.trigger_message_id")
+        if "in_progress" not in existing:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN in_progress BOOLEAN NOT NULL DEFAULT 0"))
+            import logging
+            logging.getLogger(__name__).info("Migration: added tasks.in_progress")
+        if "work_started_at" not in existing:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN work_started_at DATETIME"))
+            import logging
+            logging.getLogger(__name__).info("Migration: added tasks.work_started_at")
+        if "source_changed" not in existing:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN source_changed BOOLEAN NOT NULL DEFAULT 0"))
+            import logging
+            logging.getLogger(__name__).info("Migration: added tasks.source_changed")
+        if "source_edited_at" not in existing:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN source_edited_at DATETIME"))
+            import logging
+            logging.getLogger(__name__).info("Migration: added tasks.source_edited_at")

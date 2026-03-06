@@ -28,7 +28,7 @@ export function TopBar({ inboxCount, onOpenSettings, onOpenStats }: Props) {
 
   return (
     <header
-      className="relative flex h-11 items-center justify-between border-b border-border/50 bg-background/60 pl-3 pr-[120px] backdrop-blur-md"
+      className="relative flex h-11 items-center justify-between gap-2 border-b border-border/50 bg-background/60 pl-3 pr-[120px] backdrop-blur-md"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       {/* no-drag cutout for WindowControls zone (right 120px) */}
@@ -38,12 +38,12 @@ export function TopBar({ inboxCount, onOpenSettings, onOpenStats }: Props) {
       />
 
       {/* Left: title + badge */}
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold tracking-tight select-none">
+      <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+        <span className="min-w-0 truncate text-sm font-semibold tracking-tight select-none">
           🔵 TG Filter
         </span>
         {inboxCount > 0 && (
-          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-500 px-1 text-[10px] font-bold text-white select-none">
+          <span className="flex h-4 min-w-4 flex-shrink-0 items-center justify-center rounded-full bg-indigo-500 px-1 text-[10px] font-bold text-white select-none max-[360px]:hidden">
             {inboxCount}
           </span>
         )}
@@ -51,10 +51,12 @@ export function TopBar({ inboxCount, onOpenSettings, onOpenStats }: Props) {
 
       {/* Right: app controls — stop drag propagation so buttons are clickable */}
       <div
-        className="flex items-center gap-1"
+        className="flex flex-shrink-0 items-center gap-1"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
-        <ThemeToggler theme={theme} onToggle={toggle} />
+        <div className="max-[420px]:hidden">
+          <ThemeToggler theme={theme} onToggle={toggle} />
+        </div>
 
         {/* Stats */}
         <button

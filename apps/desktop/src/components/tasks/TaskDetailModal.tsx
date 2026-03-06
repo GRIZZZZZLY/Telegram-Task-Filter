@@ -18,6 +18,7 @@ import {
 import type { Task, TaskPriority } from '@/types/task'
 import { cn } from '@/lib/utils'
 import { stripLeadingMentions } from '@/lib/text'
+import { parseBackendDate, withDeviceTimeZone } from '@/lib/date'
 
 // ── Priority config (shared style) ───────────────────────────────────────────
 
@@ -48,27 +49,82 @@ const SNOOZE_OPTIONS = [
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const MSK_TZ = 'Europe/Moscow'
-
 function formatFullDate(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleString('ru-RU', {
+  const d = parseBackendDate(iso)
+  return d.toLocaleString('ru-RU', withDeviceTimeZone({
     day: 'numeric',
     month: 'long',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: MSK_TZ,
-  })
+  }))
 }
 
-function buildTgLink(chatId: string, messageId: number): string {
+function buildTgLinks(chatId: string, messageId: number): { deep: string; web: string } {
   const num = parseInt(chatId, 10)
   if (!isNaN(num) && num < 0) {
     const cleanId = String(Math.abs(num)).replace(/^100/, '')
-    return `https://t.me/c/${cleanId}/${messageId}`
+    return {
+      deep: `tg://privatepost?channel=${cleanId}&post=${messageId}`,
+      web: `https://t.me/c/${cleanId}/${messageId}`,
+    }
   }
-  return `https://t.me/${chatId}/${messageId}`
+  if (!isNaN(num)) {
+    return {
+      deep: `https://t.me/${chatId}/${messageId}`,
+      web: `https://t.me/${chatId}/${messageId}`,
+    }
+  }
+  const normalized = chatId.replace(/^@/, '')
+  return {
+    deep: `tg://resolve?domain=${normalized}&post=${messageId}`,
+    web: `https://t.me/${normalized}/${messageId}`,
+  }
+}
+
+const URL_SPLIT_RE = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi
+const URL_CHECK_RE = /^(https?:\/\/[^\s]+|www\.[^\s]+)$/i
+
+function splitTrailingPunctuation(token: string): { core: string; trailing: string } {
+  let core = token
+  let trailing = ''
+  while (core && /[),.;!?]$/.test(core)) {
+    trailing = core.slice(-1) + trailing
+    core = core.slice(0, -1)
+  }
+  return { core, trailing }
+}
+
+function renderLinkifiedText(text: string, keyPrefix: string) {
+  const chunks = text.split(URL_SPLIT_RE)
+  return chunks.map((chunk, idx) => {
+    if (!URL_CHECK_RE.test(chunk)) {
+      return <span key={`${keyPrefix}-${idx}`}>{chunk}</span>
+    }
+
+    const { core, trailing } = splitTrailingPunctuation(chunk)
+    if (!core) return <span key={`${keyPrefix}-${idx}`}>{chunk}</span>
+
+    const href = core.startsWith('www.') ? `https://${core}` : core
+    return (
+      <span key={`${keyPrefix}-${idx}`}>
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="break-all underline decoration-dotted underline-offset-2 text-indigo-300 hover:text-indigo-200"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            window.electronAPI?.openExternal(href)
+          }}
+        >
+          {core}
+        </a>
+        {trailing}
+      </span>
+    )
+  })
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -181,8 +237,8 @@ export function TaskDetailModal({
               </button>
 
               {/* Title */}
-              <h2 className="flex-1 text-sm font-semibold leading-snug text-foreground">
-                {stripLeadingMentions(task.title)}
+              <h2 className="flex-1 break-words text-sm font-semibold leading-snug text-foreground">
+                {renderLinkifiedText(stripLeadingMentions(task.title), `modal-title-${task.id}`)}
               </h2>
 
               {/* Close */}
@@ -234,15 +290,21 @@ export function TaskDetailModal({
               </span>
             </div>
 
+            {task.source_changed && (
+              <div className="px-4 py-2 border-b border-amber-500/20 bg-amber-500/5 text-[11px] text-amber-400">
+                Сообщение в Telegram было отредактировано и больше не соответствует текущим правилам/mention.
+              </div>
+            )}
+
             {/* ── Body — full scrollable message text ─────────────────────── */}
             <div className="flex-1 overflow-y-auto px-4 py-3">
               {task.body ? (
-                <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">
-                  {stripLeadingMentions(task.body)}
+                <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground">
+                  {renderLinkifiedText(stripLeadingMentions(task.body), `modal-body-${task.id}`)}
                 </p>
               ) : (
-                <p className="text-[13px] leading-relaxed text-foreground">
-                  {stripLeadingMentions(task.title)}
+                <p className="break-words text-[13px] leading-relaxed text-foreground">
+                  {renderLinkifiedText(stripLeadingMentions(task.title), `modal-title-fallback-${task.id}`)}
                 </p>
               )}
             </div>
@@ -334,13 +396,14 @@ export function TaskDetailModal({
               {/* Open in Telegram — push right */}
               {task.source_message_id && (task.chat_id || task.source_chat) && (
                 <a
-                  href={buildTgLink(task.chat_id || task.source_chat || '', task.source_message_id)}
+                  href={buildTgLinks(task.chat_id || task.source_chat || '', task.source_message_id).web}
                   className="ml-auto flex items-center gap-1.5 rounded-lg border border-border/50 px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
                   onClick={(e) => {
-                    e.preventDefault()
-                    window.electronAPI?.openExternal(
-                      buildTgLink(task.chat_id || task.source_chat || '', task.source_message_id)
-                    )
+                    const links = buildTgLinks(task.chat_id || task.source_chat || '', task.source_message_id)
+                    if (window.electronAPI) {
+                      e.preventDefault()
+                      window.electronAPI.openExternal(links.deep)
+                    }
                   }}
                 >
                   <ExternalLink className="h-3.5 w-3.5" />

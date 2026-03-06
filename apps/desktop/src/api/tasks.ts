@@ -74,3 +74,7 @@ export function dismissTask(id: number): Promise<{ ok: boolean; deleted: number 
 export function pinTask(id: number): Promise<Task> {
   return apiFetch<Task>(`/tasks/${id}/pin`, { method: 'POST' })
 }
+
+export function startWorkTask(id: number): Promise<Task> {
+  return apiFetch<Task>(`/tasks/${id}/start-work`, { method: 'POST' })
+}

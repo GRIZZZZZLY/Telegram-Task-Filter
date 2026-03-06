@@ -23,6 +23,16 @@ declare global {
       getVersion: () => Promise<string>
       /** Open a URL in the system default browser */
       openExternal: (url: string) => void
+      /** Get current updater state */
+      updatesGetState: () => Promise<unknown>
+      /** Trigger update check */
+      updatesCheck: () => Promise<unknown>
+      /** Download available update */
+      updatesDownload: () => Promise<unknown>
+      /** Install downloaded update and restart */
+      updatesInstall: () => void
+      /** Listen for updater state changes */
+      onUpdatesStateChanged: (cb: (state: unknown) => void) => () => void
       /** Toggle maximize / restore window */
       toggleMaximize: () => void
       /** Get current maximized state */

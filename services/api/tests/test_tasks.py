@@ -127,7 +127,10 @@ class TestListTasks:
     def test_task_fields_present(self, client, db_session):
         seed_task(db_session, "Field check task")
         item = client.get("/tasks").json()["items"][0]
-        expected_fields = {"id", "title", "status", "priority", "created_at", "updated_at"}
+        expected_fields = {
+            "id", "title", "status", "priority", "created_at", "updated_at",
+            "trigger_message_id", "in_progress", "work_started_at", "source_changed", "source_edited_at",
+        }
         assert expected_fields.issubset(item.keys())
 
 
@@ -160,6 +163,34 @@ class TestPinTask:
         pinned = [item for item in body["items"] if item["sort_order"] is not None and item["sort_order"] < 0]
 
         assert len(pinned) == 3
+
+
+# ── POST /tasks/{id}/start-work ───────────────────────────────────────────────
+
+class TestStartWork:
+    def test_marks_task_in_progress(self, client, db_session):
+        task = seed_task(db_session, "Work me")
+
+        r = client.post(f"/tasks/{task.id}/start-work")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["in_progress"] is True
+        assert body["work_started_at"] is not None
+
+    def test_toggle_off_when_already_in_progress(self, client, db_session):
+        task = seed_task(db_session, "Toggle")
+        first = client.post(f"/tasks/{task.id}/start-work")
+        second = client.post(f"/tasks/{task.id}/start-work")
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["in_progress"] is True
+        assert second.json()["in_progress"] is False
+        assert second.json()["work_started_at"] is None
+
+    def test_rejects_non_inbox(self, client, db_session):
+        task = seed_task(db_session, "Done", status=TaskStatus.done)
+        r = client.post(f"/tasks/{task.id}/start-work")
+        assert r.status_code == 409
 
 
 # ── POST /tasks/{id}/done ───────────────────────────────────────────────────

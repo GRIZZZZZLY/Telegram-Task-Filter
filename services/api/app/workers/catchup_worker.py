@@ -31,7 +31,7 @@ async def run_catchup(scan_hours: int | None = None) -> dict:
     from ..services.telegram_service import TelegramService
     from ..services.rule_engine import RuleEngine, MessageMeta
     from ..database import SessionLocal
-    from ..models import Task, TaskStatus
+    from ..models import Task, TaskPriority, TaskStatus
     from ..services.notification_service import manager
 
     from telethon.tl.types import MessageEntityMention, MessageEntityMentionName
@@ -41,12 +41,12 @@ async def run_catchup(scan_hours: int | None = None) -> dict:
 
     if hours == 0:
         logger.info("Catch-up scan disabled (catchup_hours=0)")
-        return {"scanned": 0, "created": 0, "skipped_done": 0, "skipped_dup": 0}
+        return {"scanned": 0, "created": 0, "updated": 0, "skipped_done": 0, "skipped_dup": 0}
 
     client = TelegramService.get_client()
     if client is None:
         logger.warning("Catch-up scan skipped — Telegram client unavailable")
-        return {"scanned": 0, "created": 0, "skipped_done": 0, "skipped_dup": 0}
+        return {"scanned": 0, "created": 0, "updated": 0, "skipped_done": 0, "skipped_dup": 0}
 
     # ── Determine scan window ─────────────────────────────────────────────────
     from ..tz import MSK
@@ -81,13 +81,13 @@ async def run_catchup(scan_hours: int | None = None) -> dict:
         for cid in s.tg_monitored_chat_ids.split(",")
         if cid.strip()
     ]
-    from .tg_listener import _parse_thread_filter
+    from .tg_listener import _extract_title, _parse_thread_filter, _task_payload
     thread_filter = _parse_thread_filter(s.tg_monitored_thread_ids)
     done_reaction_emoji = s.done_reaction
 
     rule_engine = RuleEngine(s.rules_path)
 
-    stats = {"scanned": 0, "created": 0, "skipped_done": 0, "skipped_dup": 0}
+    stats = {"scanned": 0, "created": 0, "updated": 0, "skipped_done": 0, "skipped_dup": 0}
 
     # ── Iterate chats ─────────────────────────────────────────────────────────
     chats_to_scan = monitored_chat_ids if monitored_chat_ids else []
@@ -114,24 +114,13 @@ async def run_catchup(scan_hours: int | None = None) -> dict:
 
                 stats["scanned"] += 1
 
-                # ── Apply same filters as live listener ───────────────────────
+                # ── Evaluate current matching state for this message ───────────
                 text: str = msg.raw_text or ""
-
-                if s.filter_ignore_own and msg.out:
-                    continue
-                if s.filter_min_text_length > 0 and len(text.strip()) < s.filter_min_text_length:
-                    continue
-
-                # Thread filter
                 thread_id: int | None = None
                 if msg.reply_to:
                     thread_id = getattr(msg.reply_to, "reply_to_top_id", None) or \
                                 getattr(msg.reply_to, "reply_to_msg_id", None)
-                chat_thread_filter = thread_filter.get(chat_id_str)
-                if chat_thread_filter is not None and thread_id not in chat_thread_filter:
-                    continue
 
-                # Extract mentions
                 mentions: list[str] = []
                 if msg.entities:
                     for ent in msg.entities:
@@ -142,46 +131,96 @@ async def run_catchup(scan_hours: int | None = None) -> dict:
                                 primary = mention_handles_lower[0] if mention_handles_lower else s.tg_mention_handle
                                 mentions.append(primary)
 
-                if s.filter_strict_mentions:
+                still_matches = True
+                eval_result = None
+                if s.filter_ignore_own and msg.out:
+                    still_matches = False
+                if still_matches and s.filter_min_text_length > 0 and len(text.strip()) < s.filter_min_text_length:
+                    still_matches = False
+                chat_thread_filter = thread_filter.get(chat_id_str)
+                if still_matches and chat_thread_filter is not None and thread_id not in chat_thread_filter:
+                    still_matches = False
+                if still_matches and s.filter_strict_mentions:
                     if not mentions:
-                        continue
-                    if mention_handles_lower:
+                        still_matches = False
+                    elif mention_handles_lower:
                         mentions_lower = [m.lower() for m in mentions]
                         if not any(h in mentions_lower for h in mention_handles_lower):
-                            continue
+                            still_matches = False
+                if still_matches:
+                    meta = MessageMeta(
+                        chat_id=chat_id_str,
+                        thread_id=str(thread_id) if thread_id else None,
+                        mentions=mentions,
+                        sender=str(msg.sender_id),
+                    )
+                    eval_result = rule_engine.evaluate(text, meta)
+                    still_matches = eval_result.create_task
 
-                # Rule evaluation
-                meta = MessageMeta(
-                    chat_id=chat_id_str,
-                    thread_id=str(thread_id) if thread_id else None,
-                    mentions=mentions,
-                    sender=str(msg.sender_id),
-                )
-                result = rule_engine.evaluate(text, meta)
-                if not result.create_task:
-                    continue
-
-                # ── Check if message already has our reaction ─────────────────
-                already_reacted = False
-                try:
-                    if msg.reactions:
-                        for reaction_count in msg.reactions.results:
-                            emoji = getattr(getattr(reaction_count, "reaction", None), "emoticon", None)
-                            if emoji == done_reaction_emoji:
-                                already_reacted = True
-                                break
-                except Exception:
-                    pass
-
-                # ── Persist task (with deduplication) ─────────────────────────
+                # ── Persist/create/reconcile task ──────────────────────────────
                 db = SessionLocal()
                 try:
-                    existing = db.query(Task).filter(Task.source_message_id == msg.id).first()
-                    if existing:
+                    existing = db.query(Task).filter(
+                        Task.chat_id == chat_id_str,
+                        Task.source_message_id == msg.id,
+                    ).first()
+
+                    # Existing task: reconcile edited source for inbox/snoozed only.
+                    if existing is not None:
                         stats["skipped_dup"] += 1
+
+                        if existing.status in (TaskStatus.inbox, TaskStatus.snoozed):
+                            title = _extract_title(text)
+                            body = text if len(text) > len(title) else None
+
+                            edit_ts = getattr(msg, "edit_date", None)
+                            if edit_ts is not None and edit_ts.tzinfo is not None:
+                                edit_ts = edit_ts.astimezone(timezone.utc).replace(tzinfo=None)
+
+                            changed = False
+                            if existing.title != title:
+                                existing.title = title
+                                changed = True
+                            if existing.body != body:
+                                existing.body = body
+                                changed = True
+                            new_thread = str(thread_id) if thread_id else None
+                            if existing.thread_id != new_thread:
+                                existing.thread_id = new_thread
+                                changed = True
+                            if existing.source_changed != (not still_matches):
+                                existing.source_changed = not still_matches
+                                changed = True
+                            if edit_ts is not None and existing.source_edited_at != edit_ts:
+                                existing.source_edited_at = edit_ts
+                                changed = True
+
+                            if changed:
+                                existing.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                                db.commit()
+                                db.refresh(existing)
+                                stats["updated"] += 1
+                                await manager.broadcast("task_updated", _task_payload(existing))
+
+                        # done tasks are intentionally not updated automatically
                         continue
 
-                    from ..workers.tg_listener import _extract_title
+                    # New task creation only for currently matching messages.
+                    if not still_matches:
+                        continue
+
+                    # ── Check if message already has our reaction ─────────────
+                    already_reacted = False
+                    try:
+                        if msg.reactions:
+                            for reaction_count in msg.reactions.results:
+                                emoji = getattr(getattr(reaction_count, "reaction", None), "emoticon", None)
+                                if emoji == done_reaction_emoji:
+                                    already_reacted = True
+                                    break
+                    except Exception:
+                        pass
+
                     title = _extract_title(text)
 
                     # Extract sender username without extra API call
@@ -196,17 +235,26 @@ async def run_catchup(scan_hours: int | None = None) -> dict:
                     status = TaskStatus.done if already_reacted else TaskStatus.inbox
                     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
 
+                    create_priority = eval_result.priority if eval_result is not None else TaskPriority.medium
+
+                    source_edited_at = getattr(msg, "edit_date", None)
+                    if source_edited_at is not None and source_edited_at.tzinfo is not None:
+                        source_edited_at = source_edited_at.astimezone(timezone.utc).replace(tzinfo=None)
+
                     task = Task(
                         title=title,
                         body=text if len(text) > len(title) else None,
                         status=status,
-                        priority=result.priority,
+                        priority=create_priority,
                         chat_id=chat_id_str,
                         thread_id=str(thread_id) if thread_id else None,
                         source_message_id=msg.id,
+                        trigger_message_id=msg.id,
                         committed_at=now_naive if already_reacted else None,
                         sender_id=str(msg.sender_id) if msg.sender_id else None,
                         sender_username=sender_uname,
+                        source_changed=False,
+                        source_edited_at=source_edited_at,
                     )
                     db.add(task)
                     db.commit()
@@ -223,20 +271,7 @@ async def run_catchup(scan_hours: int | None = None) -> dict:
                             "Catch-up: task created | id=%d priority=%s chat=%s text=%.60r",
                             task.id, task.priority.value, chat_id_str, title,
                         )
-                        # Broadcast new inbox task to UI
-                        await manager.broadcast("task_created", {
-                            "id": task.id,
-                            "title": task.title,
-                            "priority": task.priority.value,
-                            "status": task.status.value,
-                            "source_chat": chat_id_str,
-                            "source_message_id": task.source_message_id,
-                            "created_at": task.created_at.isoformat(),
-                            "committed_at": None,
-                            "snoozed_until": None,
-                            "sort_order": None,
-                            "custom_reply": None,
-                        })
+                        await manager.broadcast("task_created", _task_payload(task))
 
                 except Exception as exc:
                     logger.error("Catch-up: failed to persist task for msg_id=%d: %s", msg.id, exc)
@@ -252,7 +287,7 @@ async def run_catchup(scan_hours: int | None = None) -> dict:
             continue
 
     logger.info(
-        "Catch-up scan complete | scanned=%d created=%d skipped_done=%d skipped_dup=%d",
-        stats["scanned"], stats["created"], stats["skipped_done"], stats["skipped_dup"],
+        "Catch-up scan complete | scanned=%d created=%d updated=%d skipped_done=%d skipped_dup=%d",
+        stats["scanned"], stats["created"], stats["updated"], stats["skipped_done"], stats["skipped_dup"],
     )
     return stats

@@ -10,6 +10,7 @@ import logging
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -63,7 +64,7 @@ class PriorityStatOut(BaseModel):
 
 
 class DayStatOut(BaseModel):
-    date: str       # YYYY-MM-DD in MSK
+    date: str       # YYYY-MM-DD in requested timezone
     created: int
     done: int
 
@@ -89,35 +90,49 @@ def _to_naive_utc(dt: datetime | None) -> datetime | None:
     return dt  # assume already naive UTC
 
 
+def _resolve_tz(tz_name: Optional[str]):
+    """Resolve requested IANA timezone; fallback to MSK on invalid/missing."""
+    if not tz_name:
+        return MSK
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        logger.warning("Stats: unknown timezone %r, fallback to MSK", tz_name)
+        return MSK
+
+
 def _parse_period(
     period: str,
     from_date: Optional[str],
     to_date: Optional[str],
+    local_tz,
 ) -> tuple[datetime, datetime]:
     """Return (from_dt, to_dt) as naive UTC datetimes."""
-    now_msk = datetime.now(MSK)
+    now_local = datetime.now(local_tz)
     now_utc_naive = datetime.now(timezone.utc).replace(tzinfo=None)
 
     if period == "today":
-        today_msk_start = now_msk.replace(hour=0, minute=0, second=0, microsecond=0)
-        from_dt = today_msk_start.astimezone(timezone.utc).replace(tzinfo=None)
+        today_local_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        from_dt = today_local_start.astimezone(timezone.utc).replace(tzinfo=None)
         to_dt = now_utc_naive
 
     elif period == "week":
-        # Monday 00:00 MSK of current week
-        week_start_msk = now_msk - timedelta(days=now_msk.weekday())
-        week_start_msk = week_start_msk.replace(hour=0, minute=0, second=0, microsecond=0)
-        from_dt = week_start_msk.astimezone(timezone.utc).replace(tzinfo=None)
+        # Monday 00:00 in requested local timezone
+        week_start_local = now_local - timedelta(days=now_local.weekday())
+        week_start_local = week_start_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        from_dt = week_start_local.astimezone(timezone.utc).replace(tzinfo=None)
         to_dt = now_utc_naive
 
     elif period == "custom" and from_date and to_date:
         try:
-            from_dt = datetime.fromisoformat(from_date).replace(
-                hour=0, minute=0, second=0, microsecond=0
+            from_local = datetime.fromisoformat(from_date).replace(
+                hour=0, minute=0, second=0, microsecond=0, tzinfo=local_tz
             )
-            to_dt = datetime.fromisoformat(to_date).replace(
-                hour=23, minute=59, second=59, microsecond=999999
+            to_local = datetime.fromisoformat(to_date).replace(
+                hour=23, minute=59, second=59, microsecond=999999, tzinfo=local_tz
             )
+            from_dt = from_local.astimezone(timezone.utc).replace(tzinfo=None)
+            to_dt = to_local.astimezone(timezone.utc).replace(tzinfo=None)
         except ValueError:
             from_dt = datetime(2020, 1, 1)
             to_dt = now_utc_naive
@@ -137,13 +152,13 @@ def _in_window(dt: datetime | None, from_dt: datetime, to_dt: datetime) -> bool:
     return from_dt <= naive <= to_dt
 
 
-def _msk_date_str(dt: datetime | None) -> str | None:
-    """Return YYYY-MM-DD string in MSK timezone, or None."""
+def _local_date_str(dt: datetime | None, local_tz) -> str | None:
+    """Return YYYY-MM-DD string in requested local timezone, or None."""
     if dt is None:
         return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(MSK).strftime("%Y-%m-%d")
+    return dt.astimezone(local_tz).strftime("%Y-%m-%d")
 
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
@@ -153,11 +168,13 @@ def get_stats(
     period: str = Query("week", description="today | week | all | custom"),
     from_date: Optional[str] = Query(None, description="YYYY-MM-DD (for custom period)"),
     to_date: Optional[str] = Query(None, description="YYYY-MM-DD (for custom period)"),
+    tz: Optional[str] = Query(None, description="IANA timezone, e.g. Europe/Berlin"),
     db: Session = Depends(get_db),
 ) -> StatsOut:
     """Return aggregated statistics for tasks created in the requested period."""
 
-    from_dt, to_dt = _parse_period(period, from_date, to_date)
+    local_tz = _resolve_tz(tz)
+    from_dt, to_dt = _parse_period(period, from_date, to_date, local_tz)
 
     # Fetch all tasks from DB — small dataset, Python-side filtering is fine
     all_tasks: list[Task] = db.query(Task).all()
@@ -243,12 +260,12 @@ def get_stats(
     )
 
     # ── By day ────────────────────────────────────────────────────────────────
-    # Build a date range from from_dt to to_dt in MSK
-    from_msk_date = (
-        from_dt.replace(tzinfo=timezone.utc).astimezone(MSK).date()
+    # Build a date range from from_dt to to_dt in requested timezone
+    from_local_date = (
+        from_dt.replace(tzinfo=timezone.utc).astimezone(local_tz).date()
         if from_dt != datetime(2020, 1, 1) else None
     )
-    to_msk_date = to_dt.replace(tzinfo=timezone.utc).astimezone(MSK).date()
+    to_local_date = to_dt.replace(tzinfo=timezone.utc).astimezone(local_tz).date()
 
     # Determine actual date range from the data (cap "all" to first task)
     if window_tasks:
@@ -256,19 +273,19 @@ def get_stats(
             (_to_naive_utc(t.created_at) for t in window_tasks if t.created_at),
             default=None,
         )
-        if earliest and (from_msk_date is None or
-                         earliest.replace(tzinfo=timezone.utc).astimezone(MSK).date() < from_msk_date):
-            from_msk_date = earliest.replace(tzinfo=timezone.utc).astimezone(MSK).date()
+        if earliest and (from_local_date is None or
+                         earliest.replace(tzinfo=timezone.utc).astimezone(local_tz).date() < from_local_date):
+            from_local_date = earliest.replace(tzinfo=timezone.utc).astimezone(local_tz).date()
 
-    if from_msk_date is None:
-        from_msk_date = to_msk_date
+    if from_local_date is None:
+        from_local_date = to_local_date
 
-    # Count created and done per MSK day
+    # Count created and done per local day
     created_by_day: Counter[str] = Counter()
     done_by_day: Counter[str] = Counter()
 
     for t in window_tasks:
-        d = _msk_date_str(t.created_at)
+        d = _local_date_str(t.created_at, local_tz)
         if d:
             created_by_day[d] += 1
 
@@ -279,14 +296,14 @@ def get_stats(
         if t.committed_at and _in_window(t.committed_at, from_dt, to_dt)
     ]
     for t in all_committed:
-        d = _msk_date_str(t.committed_at)
+        d = _local_date_str(t.committed_at, local_tz)
         if d:
             done_by_day[d] += 1
 
     # Build sorted list of all dates in range
     all_dates: list[str] = []
-    cursor = from_msk_date
-    while cursor <= to_msk_date:
+    cursor = from_local_date
+    while cursor <= to_local_date:
         all_dates.append(cursor.strftime("%Y-%m-%d"))
         cursor += timedelta(days=1)
 

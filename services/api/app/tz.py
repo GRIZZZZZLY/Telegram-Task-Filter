@@ -1,7 +1,6 @@
-"""Shared timezone constants and logging formatter for the project.
+"""Shared timezone constants and logging formatters for the project.
 
 All internal storage uses UTC (timezone-naive for SQLite compatibility).
-Human-facing timestamps (logs, UI) use Moscow Time (UTC+3).
 """
 import logging
 from datetime import datetime, timezone, timedelta
@@ -23,4 +22,18 @@ class MskFormatter(logging.Formatter):
         if datefmt:
             return dt.strftime(datefmt)
         # Match default logging format: "YYYY-MM-DD HH:MM:SS,mmm"
+        return dt.strftime('%Y-%m-%d %H:%M:%S') + f',{int(record.msecs):03d}'
+
+
+class UtcFormatter(logging.Formatter):
+    """Logging formatter that emits timestamps in UTC.
+
+    Keeps the same default timestamp shape as logging.Formatter:
+    "YYYY-MM-DD HH:MM:SS,mmm"
+    """
+
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
+        dt = datetime.fromtimestamp(record.created, tz=timezone.utc)
+        if datefmt:
+            return dt.strftime(datefmt)
         return dt.strftime('%Y-%m-%d %H:%M:%S') + f',{int(record.msecs):03d}'

@@ -47,6 +47,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternal: (url: string) =>
     ipcRenderer.send('shell:open-external', url),
 
+  /** Get current updater state */
+  updatesGetState: () => ipcRenderer.invoke('updates:get-state'),
+
+  /** Check for app updates */
+  updatesCheck: () => ipcRenderer.invoke('updates:check'),
+
+  /** Download available update */
+  updatesDownload: () => ipcRenderer.invoke('updates:download'),
+
+  /** Install downloaded update and restart app */
+  updatesInstall: () => ipcRenderer.send('updates:install'),
+
+  /** Listen for updater state changes pushed from main process */
+  onUpdatesStateChanged: (cb: (state: unknown) => void) => {
+    ipcRenderer.on('updates:state', (_event, state: unknown) => cb(state))
+    return () => ipcRenderer.removeAllListeners('updates:state')
+  },
+
   /** Toggle maximize / restore window */
   toggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),
 

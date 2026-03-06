@@ -16,10 +16,6 @@ export default function App() {
 
   const { state: pinState, pinSet, unlock, skipSetup, recheckPin } = usePinGuard()
 
-  if (!setupDone) {
-    return <SetupWizard onComplete={() => setSetupDone(true)} />
-  }
-
   if (pinState === 'loading') return null
 
   if (pinState === 'needs-setup') {
@@ -34,6 +30,13 @@ export default function App() {
 
   if (pinState === 'locked') {
     return <PinScreen mode="unlock" onUnlocked={unlock} />
+  }
+
+  // IMPORTANT: Setup Wizard must run only after PIN gate is resolved.
+  // Otherwise users with configured PIN can be sent into setup flow without
+  // Bearer token, and backend will correctly return 401 "Требуется авторизация (PIN)".
+  if (!setupDone) {
+    return <SetupWizard onComplete={() => setSetupDone(true)} />
   }
 
   return <AppShell pinSet={pinSet} onPinChanged={recheckPin} />
