@@ -185,15 +185,12 @@ export function TaskList({ tab, compact = false, displayMode, onInboxCountChange
   if (tasks.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center">
-        <p className="text-2xl">
-          {tab === 'inbox' ? '🎉' : tab === 'done' ? '✅' : '💤'}
-        </p>
         <p className="text-sm text-muted-foreground">
           {tab === 'inbox'
-            ? 'Нет активных задач'
+            ? 'Нет активных'
             : tab === 'done'
-              ? 'Нет завершённых задач'
-              : 'Нет отложенных задач'}
+              ? 'Нет завершённых'
+              : 'Нет отложенных'}
         </p>
       </div>
     )

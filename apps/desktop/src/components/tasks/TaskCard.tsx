@@ -5,7 +5,6 @@ import type { Task, TaskPriority } from '@/types/task'
 import { parsePeerReactions } from '@/types/task'
 import { cn } from '@/lib/utils'
 import { createPortal } from 'react-dom'
-import { nativeConfirm } from '@/lib/dialog'
 import { stripAllMentions } from '@/lib/text'
 import { parseBackendDate, withDeviceTimeZone } from '@/lib/date'
 
@@ -291,9 +290,7 @@ export function TaskCard({
   const chatLabel = chatNames?.get(chatId) ?? formatChatLabel(chatId)
   const threadLabel = task.thread_id ? (threadNames?.get(`${chatId}:${task.thread_id}`) ?? `тема #${task.thread_id}`) : null
 
-  const handleDismissClick = async () => {
-    const ok = await nativeConfirm('Убрать задачу из inbox без реакции и ответа в Telegram?')
-    if (!ok) return
+  const handleDismissClick = () => {
     onDismiss(task.id)
   }
 
@@ -447,17 +444,6 @@ export function TaskCard({
 
           {/* Top-right utility cluster */}
           <div className="group/utility flex flex-shrink-0 items-center gap-1 rounded-lg border border-border/30 bg-muted/10 p-1 transition-colors hover:border-border/50 hover:bg-muted/20">
-            {isInbox && (
-              <button
-                onClick={handleDismissClick}
-                disabled={isLoading}
-                title="Удалить"
-                className="flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-red-400/90 transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
-            )}
-
             {onOpenDetail && (
               <button
                 onClick={onOpenDetail}
@@ -483,6 +469,17 @@ export function TaskCard({
             >
               <ExternalLink className="h-3 w-3" />
             </a>
+
+            {isInbox && (
+              <button
+                onClick={handleDismissClick}
+                disabled={isLoading}
+                title="Удалить"
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-red-400/90 transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            )}
           </div>
         </div>
 
