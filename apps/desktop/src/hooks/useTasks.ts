@@ -159,6 +159,18 @@ export function useTasks(status: string, refreshTrigger?: number): UseTasksResul
             const normalized = normalizeTask(task)
             setTasks((prev) => prev.map((t) => (t.id === normalized.id ? { ...t, ...normalized } : t)))
           }
+
+          if (event.type === 'task_deleted') {
+            const deletedId = (event.data as { id: number } | undefined)?.id
+            if (deletedId != null) {
+              setTasks((prev) => prev.filter((t) => t.id !== deletedId))
+              // Clear undo state if the deleted task was pending
+              if (pendingUndoIdRef.current === deletedId) {
+                pendingUndoIdRef.current = null
+                setPendingUndo(null)
+              }
+            }
+          }
         } catch {
           // ignore parse errors
         }

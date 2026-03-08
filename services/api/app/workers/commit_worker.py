@@ -81,17 +81,30 @@ async def _commit_task(db, task, settings, manager) -> None:
     from ..models import Event, EventType, TaskStatus
     from ..services.telegram_service import TelegramService
 
-    # Determine what reply to send:
+    # Determine what reply and reaction to send:
     #   - task.custom_reply set   → always send it, ignoring done_send_reply flag
     #   - task.custom_reply empty → honour done_send_reply + done_reply_text from settings
     custom = (task.custom_reply or "").strip()
     send_reply = bool(custom) or settings.done_send_reply
     reply_text = custom or settings.done_reply_text
 
+    # Determine which reaction emoji to use:
+    #   - If custom reply is set and custom_reply_reaction_enabled → use custom_reply_reaction
+    #     (falling back to done_reaction if custom_reply_reaction is empty)
+    #   - Otherwise → use done_reaction (if done_reaction_enabled)
+    is_custom_reply = bool(custom)
+    if is_custom_reply and settings.custom_reply_reaction_enabled:
+        reaction = (settings.custom_reply_reaction.strip() or settings.done_reaction)
+        send_reaction = True
+    else:
+        reaction = settings.done_reaction
+        send_reaction = settings.done_reaction_enabled
+
     logger.info(
-        "Committing task | id=%d chat=%s msg=%d reaction=%r send_reply=%s reply_text=%.60r custom_reply=%s",
+        "Committing task | id=%d chat=%s msg=%d reaction=%r send_reaction=%s "
+        "send_reply=%s reply_text=%.60r custom_reply=%s",
         task.id, task.chat_id, task.source_message_id or 0,
-        settings.done_reaction, send_reply, reply_text, bool(custom),
+        reaction, send_reaction, send_reply, reply_text, bool(custom),
     )
 
     tg = TelegramService()
@@ -132,7 +145,7 @@ async def _commit_task(db, task, settings, manager) -> None:
         result = await tg.send_done(
             chat_id=task.chat_id or "",
             message_id=task.source_message_id or 0,
-            reaction=settings.done_reaction,
+            reaction=reaction if send_reaction else "",
             send_reply=send_reply,
             reply_text=reply_text,
         )

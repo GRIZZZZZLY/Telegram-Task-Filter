@@ -223,11 +223,18 @@ async def run_catchup(scan_hours: int | None = None) -> dict:
 
                     title = _extract_title(text)
 
-                    # Extract sender username without extra API call
+                    # Extract sender info without extra API call
                     sender_uname: str | None = None
+                    sender_fname: str | None = None
                     try:
-                        if msg.sender and getattr(msg.sender, "username", None):
-                            sender_uname = f"@{msg.sender.username}"
+                        if msg.sender:
+                            if getattr(msg.sender, "username", None):
+                                sender_uname = f"@{msg.sender.username}"
+                            first = getattr(msg.sender, "first_name", None) or ""
+                            last = getattr(msg.sender, "last_name", None) or ""
+                            full = f"{first} {last}".strip()
+                            if full:
+                                sender_fname = full
                     except Exception:
                         pass
 
@@ -253,6 +260,7 @@ async def run_catchup(scan_hours: int | None = None) -> dict:
                         committed_at=now_naive if already_reacted else None,
                         sender_id=str(msg.sender_id) if msg.sender_id else None,
                         sender_username=sender_uname,
+                        sender_first_name=sender_fname,
                         source_changed=False,
                         source_edited_at=source_edited_at,
                     )

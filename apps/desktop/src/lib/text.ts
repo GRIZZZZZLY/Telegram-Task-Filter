@@ -72,3 +72,36 @@ export function stripLeadingMentions(text: string, handles = _handles): string {
 
   return result || text // fallback: if stripping ate everything, return original
 }
+
+// ── Strip all @mentions ───────────────────────────────────────────────────────
+
+const _MENTION_RE = /@[A-Za-z0-9_]{3,}/g
+
+/**
+ * Remove ALL @mention tokens from text (any handle, not just configured ones).
+ *
+ * After removal, collapses extra whitespace/punctuation and capitalises the
+ * first letter. Falls back to the original text if stripping leaves nothing.
+ *
+ * Examples:
+ *   "@user1 @user2 сделай отчёт"            → "Сделай отчёт"
+ *   "@boss согласуй с @alice и сделай"       → "Согласуй с и сделай"
+ *   "@only_mention"                           → "@only_mention"  (fallback)
+ */
+export function stripAllMentions(text: string): string {
+  if (!text) return text
+
+  const stripped = text
+    .replace(_MENTION_RE, '')          // remove all @handles
+    .replace(/[\s,.:;!?]+/g, ' ')     // collapse leftover punctuation/spaces
+    .trim()
+
+  if (!stripped) return text // fallback: stripping ate everything
+
+  // Capitalise first letter if original started with uppercase
+  if (text[0] === text[0].toUpperCase() && stripped[0] === stripped[0].toLowerCase()) {
+    return stripped[0].toUpperCase() + stripped.slice(1)
+  }
+
+  return stripped
+}

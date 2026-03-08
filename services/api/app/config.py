@@ -61,6 +61,16 @@ class Settings(BaseSettings):
     done_send_reply: bool = True
     done_reply_text: str = "Готово ✅"
 
+    # When True, send done_reaction on task completion (default: True).
+    done_reaction_enabled: bool = True
+
+    # When True and a custom reply is provided, also send custom_reply_reaction
+    # on the source message (in addition to the reply text).
+    custom_reply_reaction_enabled: bool = False
+    # Emoji to use as reaction when a custom reply is sent.
+    # Empty string = use done_reaction as fallback.
+    custom_reply_reaction: str = ""
+
     # ── Staged-commit window ─────────────────────────────────────────────
     done_commit_delay_seconds: int = 5
 
@@ -82,7 +92,10 @@ class Settings(BaseSettings):
     notifications_enabled: bool = True  # show OS toast notifications
     sound_enabled: bool = True          # play sound in notifications
     notification_sound: str = "ding"    # sound preset: ding | double | chime | pop | ping
-    compact_mode: bool = False
+    compact_mode: bool = False  # legacy — kept for backward compat
+    # task_display_mode: "compact" | "standard" | "expanded"
+    # If not set, falls back to compact_mode for backward compat.
+    task_display_mode: str = ""
 
     # ── Inbox sort order ──────────────────────────────────────────────────
     # tasks_inbox_sort_direction: "desc" = newest first (default), "asc" = oldest first

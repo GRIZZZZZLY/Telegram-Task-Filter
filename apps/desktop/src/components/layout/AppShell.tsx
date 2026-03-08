@@ -56,7 +56,7 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
   const [inboxCount, setInboxCount] = useState(0)
   const [showSettings, setShowSettings] = useState(false)
   const [showStats, setShowStats] = useState(false)
-  const [compact, setCompact] = useState(false)
+  const [displayMode, setDisplayMode] = useState<'compact' | 'standard' | 'expanded'>('standard')
   const [authState, setAuthState] = useState<AuthState>({ checked: false })
   const [taskRefreshKey, setTaskRefreshKey] = useState(0)
   const tabCounts = useTabCounts()
@@ -84,7 +84,9 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
     if (!ready || (authState.checked && !authState.connected)) return
     getSettings()
       .then((s) => {
-        setCompact(s.compact_mode)
+        // Resolve display mode: prefer task_display_mode, fall back to compact_mode legacy
+        const mode = s.task_display_mode || (s.compact_mode ? 'compact' : 'standard')
+        setDisplayMode(mode as 'compact' | 'standard' | 'expanded')
         // Store mention handles for display stripping in TaskCard / TaskDetailModal
         setMentionHandles(s.tg_mention_handles)
         // Sync sound to renderer-side synth (custom sound)
@@ -301,7 +303,7 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
         <main className="flex flex-1 flex-col overflow-y-auto p-3">
           <TaskList
             tab={tab}
-            compact={compact}
+            displayMode={displayMode}
             onInboxCountChange={setInboxCount}
             refreshTrigger={taskRefreshKey}
           />

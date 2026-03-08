@@ -14,7 +14,9 @@ import { nativeConfirm } from '@/lib/dialog'
 
 interface Props {
   tab: TabId
+  /** @deprecated use displayMode instead */
   compact?: boolean
+  displayMode?: 'compact' | 'standard' | 'expanded'
   onInboxCountChange?: (count: number) => void
   /** Called when Escape is pressed (e.g. to close settings panel) */
   onEscape?: () => void
@@ -22,7 +24,9 @@ interface Props {
   refreshTrigger?: number
 }
 
-export function TaskList({ tab, compact = false, onInboxCountChange, onEscape, refreshTrigger }: Props) {
+export function TaskList({ tab, compact = false, displayMode, onInboxCountChange, onEscape, refreshTrigger }: Props) {
+  // Resolve effective display mode: prefer displayMode prop, fall back to compact legacy
+  const effectiveMode = displayMode ?? (compact ? 'compact' : 'standard')
   const {
     tasks,
     loading,
@@ -264,7 +268,8 @@ export function TaskList({ tab, compact = false, onInboxCountChange, onEscape, r
             >
               <TaskCard
                 task={task}
-                compact={compact}
+                compact={effectiveMode === 'compact'}
+                forceExpanded={effectiveMode === 'expanded'}
                 chatNames={chatNames}
                 threadNames={threadNames}
                 onDone={handleDone}

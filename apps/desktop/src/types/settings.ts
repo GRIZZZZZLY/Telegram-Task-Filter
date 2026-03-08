@@ -10,6 +10,9 @@ export interface AppSettings {
   done_send_reply: boolean
   done_reply_text: string
   done_commit_delay_seconds: number
+  done_reaction_enabled: boolean
+  custom_reply_reaction_enabled: boolean
+  custom_reply_reaction: string
 
   // Filters
   filter_ignore_own: boolean
@@ -26,7 +29,8 @@ export interface AppSettings {
   notifications_enabled: boolean
   sound_enabled: boolean
   notification_sound: string
-  compact_mode: boolean
+  compact_mode: boolean  // legacy
+  task_display_mode: 'compact' | 'standard' | 'expanded'
 
   // Inbox sort
   tasks_inbox_sort_direction: 'asc' | 'desc'

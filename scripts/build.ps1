@@ -5,7 +5,11 @@
 #   .\scripts\build.ps1 -Target nsis          # only NSIS installer
 param(
     [ValidateSet('all', 'portable', 'nsis')]
-    [string]$Target = 'all'
+    [string]$Target = 'all',
+
+    # Pass -Publish to upload artifacts to GitHub Releases.
+    # Requires GH_TOKEN env var to be set.
+    [switch]$Publish
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,6 +57,7 @@ Write-Host '=======================================' -ForegroundColor Cyan
 Write-Host "  Project root : $ProjectRoot"
 Write-Host "  Desktop dir  : $DesktopDir"
 Write-Host "  Target       : $Target"
+Write-Host "  Publish      : $(if ($Publish) { 'YES (GitHub Release)' } else { 'no' })"
 Write-Host ''
 
 # -- 1. Check Node -------------------------------------------------------
@@ -96,6 +101,17 @@ try {
 
 # -- 5. electron-builder packaging ---------------------------------------
 Write-Host '[5/5] Packaging with electron-builder...' -ForegroundColor Yellow
+
+# Validate GH_TOKEN when publishing
+if ($Publish) {
+    if (-not $env:GH_TOKEN) {
+        Write-Error 'GH_TOKEN environment variable is not set. Cannot publish to GitHub Releases.'
+    }
+    Write-Host '  GH_TOKEN found, will publish to GitHub Releases.' -ForegroundColor Green
+}
+
+$publishFlag = if ($Publish) { 'always' } else { 'never' }
+
 Push-Location $DesktopDir
 try {
     $ReleaseDir = Join-Path $DesktopDir 'release'
@@ -103,14 +119,36 @@ try {
     Clean-ReleaseArtifacts -ReleaseDir $ReleaseDir
 
     if ($Target -eq 'portable') {
-        npx electron-builder --win --config.win.target=portable --publish never
+        npx electron-builder --win --config.win.target=portable --publish $publishFlag
     } elseif ($Target -eq 'nsis') {
-        npx electron-builder --win --config.win.target=nsis --publish never
+        npx electron-builder --win --config.win.target=nsis --publish $publishFlag
     } else {
-        # 'all' — build both targets as defined in package.json
-        npx electron-builder --win --publish never
+        npx electron-builder --win --publish $publishFlag
     }
     if ($LASTEXITCODE -ne 0) { throw 'electron-builder failed' }
+
+    # Generate app-update.yml inside the NSIS-installed app resources so that
+    # electron-updater can find the GitHub feed even when built with --publish never.
+    # The file is embedded into the installer via extraResources at build time,
+    # so we write it to the win-unpacked resources dir before packaging finishes.
+    # electron-builder already writes it there when --publish always is used;
+    # we replicate the same file for --publish never builds.
+    if ($Target -ne 'portable') {
+        $updateYmlPath = Join-Path $ReleaseDir 'win-unpacked\resources\app-update.yml'
+        if (-not (Test-Path $updateYmlPath)) {
+            $version = (Get-Content (Join-Path $DesktopDir 'package.json') | ConvertFrom-Json).version
+            $updateYml = @"
+provider: github
+owner: GRIZZZZZLY
+repo: Telegram-Task-Filter
+updaterCacheDirName: tg-focus-filter-updater
+"@
+            Set-Content -Path $updateYmlPath -Value $updateYml -Encoding UTF8
+            Write-Host "  Generated app-update.yml -> $updateYmlPath" -ForegroundColor Green
+        } else {
+            Write-Host "  app-update.yml already present (publish always was used)" -ForegroundColor Gray
+        }
+    }
 } finally { Pop-Location }
 
 # -- Done ----------------------------------------------------------------

@@ -1,3 +1,16 @@
+export interface PeerReaction {
+  user_id: string | null
+  username: string | null   // e.g. "@m_yanitsky"
+  first_name: string | null // e.g. "Миша"
+  emoji: string             // e.g. "👀" or "👍"
+  ts: string                // ISO timestamp
+}
+
+export function parsePeerReactions(raw: string | null | undefined): PeerReaction[] {
+  if (!raw) return []
+  try { return JSON.parse(raw) as PeerReaction[] } catch { return [] }
+}
+
 export type TaskStatus = 'inbox' | 'done' | 'snoozed'
 export type TabId = 'inbox' | 'done' | 'snoozed'
 export type TaskPriority = 'normal' | 'high' | 'medium' | 'low'
@@ -14,6 +27,8 @@ export interface Task {
   trigger_message_id?: number | null
   sender_id?: string | null
   sender_username?: string | null
+  sender_first_name?: string | null
+  peer_reactions?: string | null  // JSON: PeerReaction[]
   priority: TaskPriority
   status: TaskStatus
   created_at: string
@@ -40,6 +55,7 @@ export type WsEventType =
   | 'task_woken'
   | 'inbox_cleared'
   | 'done_cleared'
+  | 'task_deleted'
   | 'ping'
 
 export interface WsEvent {

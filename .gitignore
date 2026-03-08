@@ -25,3 +25,12 @@ secrets.dpapi
 *.tsbuildinfo
 target/
 .DS_Store
+
+# Build log artifacts
+berr.txt
+bout.txt
+build_err.txt
+build_out.txt
+
+# Internal planning docs
+ai-docs/

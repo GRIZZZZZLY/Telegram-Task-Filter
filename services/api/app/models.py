@@ -63,6 +63,7 @@ class Task(Base):
     trigger_message_id = Column(Integer, nullable=True)
     sender_id = Column(String(100), nullable=True, index=True)
     sender_username = Column(String(100), nullable=True)
+    sender_first_name = Column(String(200), nullable=True)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
@@ -87,6 +88,10 @@ class Task(Base):
     # Source state after Telegram message edits
     source_changed = Column(Boolean, nullable=False, default=False)
     source_edited_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Peer reactions: JSON list of {user_id, username, first_name, emoji, ts}
+    # Tracks all reactions from other users on the source Telegram message.
+    peer_reactions = Column(Text, nullable=True)
 
     events = relationship("Event", back_populates="task", cascade="all, delete-orphan")
 

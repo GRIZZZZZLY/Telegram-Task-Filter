@@ -447,9 +447,30 @@ function setUpdaterState(patch: Partial<UpdaterState>): void {
   broadcastUpdaterState()
 }
 
+/** Returns true when running as a portable .exe (no installer, no NSIS). */
+function isPortableBuild(): boolean {
+  // electron-builder sets this env var for portable targets
+  if (process.env.PORTABLE_EXECUTABLE_DIR) return true
+  // Fallback: portable exe lives next to itself, not in Program Files
+  const exePath = app.getPath('exe')
+  const programFiles = process.env.PROGRAMFILES ?? 'C:\\Program Files'
+  const programFilesX86 = process.env['PROGRAMFILES(X86)'] ?? 'C:\\Program Files (x86)'
+  const localAppData = process.env.LOCALAPPDATA ?? ''
+  const isInstalled =
+    exePath.startsWith(programFiles) ||
+    exePath.startsWith(programFilesX86) ||
+    exePath.startsWith(localAppData)
+  return !isInstalled
+}
+
 async function setupAutoUpdater(): Promise<void> {
   if (!app.isPackaged) {
     setUpdaterState({ status: 'unsupported', message: 'Auto update disabled in dev mode' })
+    return
+  }
+
+  if (isPortableBuild()) {
+    setUpdaterState({ status: 'unsupported', message: 'Portable build — update manually' })
     return
   }
 
@@ -462,6 +483,22 @@ async function setupAutoUpdater(): Promise<void> {
     }
 
     autoUpdaterRef.autoDownload = false
+
+    // Set update feed programmatically — this is the fallback when app-update.yml
+    // is missing (e.g. built with --publish never). electron-updater will use this
+    // config to find releases on GitHub even without the yml file.
+    try {
+      (autoUpdaterRef as unknown as {
+        setFeedURL: (opts: Record<string, unknown>) => void
+      }).setFeedURL({
+        provider: 'github',
+        owner: 'GRIZZZZZLY',
+        repo: 'Telegram-Task-Filter',
+      })
+    } catch {
+      // setFeedURL may not exist on all versions — safe to ignore,
+      // app-update.yml will be used if present
+    }
 
     autoUpdaterRef.on('checking-for-update', () => {
       setUpdaterState({ status: 'checking', message: 'Проверка обновлений…', checkedAt: new Date().toISOString() })
@@ -512,8 +549,13 @@ async function setupAutoUpdater(): Promise<void> {
     })
 
     autoUpdaterRef.on('error', (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error('[Updater] Error:', msg)
+      const raw = err instanceof Error ? err.message : String(err)
+      console.error('[Updater] Error:', raw)
+      // app-update.yml missing = built without --publish, config injected above
+      // will be used on next check — show a friendly message instead of raw path
+      const msg = raw.includes('app-update.yml') || raw.includes('ENOENT')
+        ? 'Не удалось найти конфигурацию обновлений. Попробуйте проверить обновления вручную.'
+        : raw
       setUpdaterState({ status: 'error', message: msg })
     })
 

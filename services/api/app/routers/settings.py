@@ -34,6 +34,7 @@ def get_all_settings() -> SettingsOut:
         sound_enabled=s.sound_enabled,
         notification_sound=s.notification_sound,
         compact_mode=s.compact_mode,
+        task_display_mode=s.task_display_mode or ("compact" if s.compact_mode else "standard"),
         tasks_inbox_sort_direction=s.tasks_inbox_sort_direction,
         tasks_inbox_sort_by_priority=s.tasks_inbox_sort_by_priority,
     )

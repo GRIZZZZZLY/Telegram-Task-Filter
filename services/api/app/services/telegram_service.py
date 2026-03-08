@@ -236,23 +236,26 @@ class TelegramService:
             logger.warning("[SKIP] send_done — Telethon not connected")
             return {"reply_message_id": None}
 
-        try:
-            from telethon.tl.functions.messages import SendReactionRequest
-            from telethon.tl.types import ReactionEmoji
+        if reaction:
+            try:
+                from telethon.tl.functions.messages import SendReactionRequest
+                from telethon.tl.types import ReactionEmoji
 
-            await client(
-                SendReactionRequest(
-                    peer=int(chat_id),
-                    msg_id=message_id,
-                    reaction=[ReactionEmoji(emoticon=reaction)],
+                await client(
+                    SendReactionRequest(
+                        peer=int(chat_id),
+                        msg_id=message_id,
+                        reaction=[ReactionEmoji(emoticon=reaction)],
+                    )
                 )
-            )
-            logger.info(
-                "Reaction sent | chat=%s msg=%d reaction=%s",
-                chat_id, message_id, reaction,
-            )
-        except Exception as exc:
-            logger.error("send_reaction failed: %s", exc)
+                logger.info(
+                    "Reaction sent | chat=%s msg=%d reaction=%s",
+                    chat_id, message_id, reaction,
+                )
+            except Exception as exc:
+                logger.error("send_reaction failed: %s", exc)
+        else:
+            logger.info("Reaction skipped (disabled) | chat=%s msg=%d", chat_id, message_id)
 
         reply_message_id: Optional[int] = None
         if send_reply:

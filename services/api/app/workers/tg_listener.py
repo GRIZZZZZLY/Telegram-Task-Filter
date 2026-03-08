@@ -129,6 +129,8 @@ def _task_payload(task: Task) -> dict:
         "trigger_message_id": task.trigger_message_id,
         "sender_id": task.sender_id,
         "sender_username": task.sender_username,
+        "sender_first_name": task.sender_first_name,
+        "peer_reactions": task.peer_reactions,
         "created_at": task.created_at.isoformat(),
         "updated_at": task.updated_at.isoformat(),
         "committed_at": task.committed_at.isoformat() if task.committed_at else None,
@@ -140,6 +142,63 @@ def _task_payload(task: Task) -> dict:
         "source_changed": task.source_changed,
         "source_edited_at": task.source_edited_at.isoformat() if task.source_edited_at else None,
     }
+
+
+async def _delete_tasks_for_messages(
+    channel_id: int | None,
+    msg_ids: list[int],
+    is_channel: bool,
+) -> None:
+    """Delete inbox/snoozed tasks whose source_message_id is in msg_ids.
+
+    For channel/supergroup deletes, channel_id is used to narrow the search.
+    For PM/legacy-group deletes, channel_id is None — we search across all chats
+    (Telegram doesn't tell us which chat the messages belonged to in that case).
+
+    Tasks in 'done' status are intentionally kept as historical records.
+    """
+    if not msg_ids:
+        return
+
+    db = SessionLocal()
+    try:
+        query = db.query(Task).filter(
+            Task.source_message_id.in_(msg_ids),
+            Task.status.in_([TaskStatus.inbox, TaskStatus.snoozed]),
+        )
+
+        if is_channel and channel_id is not None:
+            # Build the chat_id string the same way as in _handle_reactions
+            try:
+                chat_id_str = str(-int(f"100{channel_id}"))
+            except Exception:
+                return
+            query = query.filter(Task.chat_id == chat_id_str)
+
+        tasks_to_delete = query.all()
+        if not tasks_to_delete:
+            return
+
+        deleted_ids: list[int] = []
+        for task in tasks_to_delete:
+            deleted_ids.append(task.id)
+            db.delete(task)
+
+        db.commit()
+        logger.info(
+            "Tasks deleted (source message removed) | ids=%s msg_ids=%s",
+            deleted_ids,
+            msg_ids,
+        )
+
+        for task_id in deleted_ids:
+            await manager.broadcast("task_deleted", {"id": task_id})
+
+    except Exception as exc:
+        logger.error("Failed to delete tasks on message delete: %s", exc)
+        db.rollback()
+    finally:
+        db.close()
 
 
 async def start_listener() -> None:
@@ -177,6 +236,7 @@ async def start_listener() -> None:
         logger.warning("Listener: could not resolve own user_id: %s", exc)
 
     from telethon import events
+    from telethon.tl import types
     from telethon.tl.types import MessageEntityMention, MessageEntityMentionName
 
     @client.on(events.NewMessage(chats=monitored_chat_ids or None))
@@ -303,11 +363,18 @@ async def start_listener() -> None:
         # ── Persist task ───────────────────────────────────────────────────
         title = _extract_title(effective_text)
 
-        # Extract sender username without extra API call (may be None)
+        # Extract sender info without extra API call (may be None)
         sender_uname: str | None = None
+        sender_fname: str | None = None
         try:
-            if msg.sender and getattr(msg.sender, "username", None):
-                sender_uname = f"@{msg.sender.username}"
+            if msg.sender:
+                if getattr(msg.sender, "username", None):
+                    sender_uname = f"@{msg.sender.username}"
+                first = getattr(msg.sender, "first_name", None) or ""
+                last = getattr(msg.sender, "last_name", None) or ""
+                full = f"{first} {last}".strip()
+                if full:
+                    sender_fname = full
         except Exception:
             pass
 
@@ -337,6 +404,7 @@ async def start_listener() -> None:
                 trigger_message_id=trigger_message_id,
                 sender_id=str(msg.sender_id) if msg.sender_id else None,
                 sender_username=sender_uname,
+                sender_first_name=sender_fname,
             )
             db.add(task)
             db.commit()
@@ -461,7 +529,141 @@ async def start_listener() -> None:
 
         await manager.broadcast("task_updated", _task_payload(task))
 
-    _current_handlers = [_handle_new, _handle_edited]
+    @client.on(events.Raw(types.UpdateMessageReactions))
+    async def _handle_reactions(update) -> None:
+        """Sync all reactions on a message to the matching task's peer_reactions field.
+
+        Strategy:
+        1. Extract chat_id / msg_id from the raw update.
+        2. Use update.reactions.recent_reactions as the authoritative source —
+           it is always present (empty list = all reactions removed) and requires
+           no extra API call.
+        3. Enrich with real names via get_entity() — best-effort, failures are
+           silently ignored so the update always goes through.
+        4. Always persist + broadcast, even when the list is empty (covers the
+           "reaction removed" case that previously left stale data in the UI).
+        """
+        import json
+        from datetime import datetime, timezone
+
+        try:
+            peer = getattr(update, "peer", None)
+            msg_id: int | None = getattr(update, "msg_id", None)
+            if peer is None or msg_id is None:
+                return
+
+            # ── Resolve chat_id to the same format used when tasks are stored ──
+            try:
+                chat_id_raw = (
+                    getattr(peer, "channel_id", None)
+                    or getattr(peer, "chat_id", None)
+                    or getattr(peer, "user_id", None)
+                )
+                if chat_id_raw is None:
+                    return
+                if hasattr(peer, "channel_id"):
+                    chat_id_str = str(-int(f"100{chat_id_raw}"))
+                elif hasattr(peer, "chat_id"):
+                    chat_id_str = str(-chat_id_raw)
+                else:
+                    chat_id_str = str(chat_id_raw)
+            except Exception:
+                return
+
+            # ── Find matching task ────────────────────────────────────────────
+            db = SessionLocal()
+            try:
+                task = db.query(Task).filter(
+                    Task.chat_id == chat_id_str,
+                    Task.source_message_id == msg_id,
+                ).first()
+                if task is None:
+                    return
+
+                # ── Build reactions list from update.reactions.recent_reactions ─
+                # This field is always present and reflects the current state,
+                # including an empty list when all reactions have been removed.
+                msg_reactions = getattr(update, "reactions", None)
+                recent = getattr(msg_reactions, "recent_reactions", None) or []
+
+                reactions_list: list[dict] = []
+                now_ts = datetime.now(timezone.utc).isoformat()
+
+                for rp in recent:
+                    emoji = getattr(getattr(rp, "reaction", None), "emoticon", None) or "?"
+                    peer_id = getattr(rp, "peer_id", None)
+                    user_id_val = getattr(peer_id, "user_id", None)
+
+                    first_name: str | None = None
+                    username: str | None = None
+
+                    # Best-effort name resolution — never blocks the update
+                    if user_id_val:
+                        try:
+                            user_entity = await client.get_entity(user_id_val)
+                            first = getattr(user_entity, "first_name", None) or ""
+                            last = getattr(user_entity, "last_name", None) or ""
+                            full = f"{first} {last}".strip()
+                            first_name = full or None
+                            uname = getattr(user_entity, "username", None)
+                            username = f"@{uname}" if uname else None
+                        except Exception:
+                            pass
+
+                    reactions_list.append({
+                        "user_id": str(user_id_val) if user_id_val else None,
+                        "username": username,
+                        "first_name": first_name,
+                        "emoji": emoji,
+                        "ts": now_ts,
+                    })
+
+                # ── Persist (always, even empty list = reactions cleared) ──────
+                task.peer_reactions = json.dumps(reactions_list, ensure_ascii=False)
+                db.add(task)
+                db.commit()
+                db.refresh(task)
+                logger.debug(
+                    "Peer reactions updated | task_id=%d count=%d",
+                    task.id, len(reactions_list),
+                )
+            except Exception as exc:
+                logger.error("Failed to sync peer reactions: %s", exc)
+                db.rollback()
+                return
+            finally:
+                db.close()
+
+            await manager.broadcast("task_updated", _task_payload(task))
+
+        except Exception as exc:
+            logger.error("_handle_reactions error: %s", exc)
+
+    @client.on(events.Raw(types.UpdateDeleteChannelMessages))
+    async def _handle_deleted_channel(update) -> None:
+        """Delete tasks whose source message was deleted in a channel/supergroup."""
+        await _delete_tasks_for_messages(
+            channel_id=getattr(update, "channel_id", None),
+            msg_ids=list(getattr(update, "messages", []) or []),
+            is_channel=True,
+        )
+
+    @client.on(events.Raw(types.UpdateDeleteMessages))
+    async def _handle_deleted_pm(update) -> None:
+        """Delete tasks whose source message was deleted in a PM or legacy group."""
+        await _delete_tasks_for_messages(
+            channel_id=None,
+            msg_ids=list(getattr(update, "messages", []) or []),
+            is_channel=False,
+        )
+
+    _current_handlers = [
+        _handle_new,
+        _handle_edited,
+        _handle_reactions,
+        _handle_deleted_channel,
+        _handle_deleted_pm,
+    ]
 
     logger.info(
         "Telethon listener registered | chats=%s handle=%s",

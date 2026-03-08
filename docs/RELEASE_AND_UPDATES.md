@@ -64,8 +64,10 @@ Pipeline:
 3. validate tag version equals `apps/desktop/package.json` version
 4. build backend via PyInstaller
 5. build desktop (`npm run build`)
-6. publish release via electron-builder (`--publish always`)
-7. upload artifacts to Actions
+6. build installer/update metadata via electron-builder (`--publish never`)
+7. upload update feed to S3
+8. create GitHub release entry
+9. upload artifacts to Actions
 
 ---
 
@@ -77,10 +79,107 @@ Pipeline:
 
 - set: **Read and write permissions**
 
-### Tokens/secrets
+### Repository Variables
 
-- workflow uses `${{ secrets.GITHUB_TOKEN }}` for release publish
-- if code signing is needed later, add signing secrets (`CSC_*`)
+`Settings -> Secrets and variables -> Actions -> Variables`
+
+Required:
+
+- `UPDATE_FEED_URL` — public HTTPS URL of your feed, e.g. `https://updates.example.com/stable`
+- `S3_BUCKET` — bucket name, e.g. `tg-focus-filter-updates`
+- `S3_PREFIX` — prefix/folder, e.g. `stable`
+
+### Repository Secrets
+
+Required for S3 upload:
+
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_REGION`
+
+Also used:
+
+- `${{ secrets.GITHUB_TOKEN }}` for GitHub release entry
+
+Optional later:
+
+- code signing secrets (`CSC_*`)
+
+---
+
+## What you need to prepare manually
+
+Yes — before first real release you need to prepare infrastructure.
+
+### 1. AWS account
+
+You need an AWS account (or compatible S3 provider).
+
+### 2. S3 bucket for updates
+
+Create bucket, for example:
+
+- `tg-focus-filter-updates`
+
+Recommended structure:
+
+```text
+s3://tg-focus-filter-updates/
+  stable/
+    latest.yml
+    TG-Focus-Filter-0.2.1-setup.exe
+    TG-Focus-Filter-0.2.1-setup.exe.blockmap
+```
+
+### 3. Public HTTPS URL for clients
+
+Best options:
+
+- CloudFront + custom domain, e.g. `https://updates.example.com/stable`
+- or direct public S3 website/domain if acceptable
+
+`UPDATE_FEED_URL` must point to the final public URL that contains `latest.yml`.
+
+### 4. IAM user for GitHub Actions
+
+Create a limited IAM user with permission to upload only to your update bucket/prefix.
+
+Minimum practical actions:
+
+- `s3:PutObject`
+- `s3:DeleteObject` (optional but useful)
+- `s3:ListBucket`
+
+Scope it to the update bucket only.
+
+### 5. GitHub repo settings
+
+Add the repo variables and secrets listed above.
+
+---
+
+## Recommended S3 bucket policy shape
+
+Public read should be limited to the update prefix only.
+
+Example idea (adapt to your bucket/domain):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadUpdates",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": ["s3:GetObject"],
+      "Resource": "arn:aws:s3:::tg-focus-filter-updates/stable/*"
+    }
+  ]
+}
+```
+
+Keep write access private via IAM only.
 
 ---
 

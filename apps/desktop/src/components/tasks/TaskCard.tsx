@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { ExternalLink, RotateCcw, Clock, ChevronDown, ChevronUp, Check, GripVertical, Trash2, Maximize2, Pin, PinOff, Eye } from 'lucide-react'
 import type { Task, TaskPriority } from '@/types/task'
+import { parsePeerReactions } from '@/types/task'
 import { cn } from '@/lib/utils'
 import { createPortal } from 'react-dom'
 import { nativeConfirm } from '@/lib/dialog'
-import { stripLeadingMentions } from '@/lib/text'
+import { stripAllMentions } from '@/lib/text'
 import { parseBackendDate, withDeviceTimeZone } from '@/lib/date'
 
 // ── Priority config ────────────────────────────────────────────────────────
@@ -144,6 +145,8 @@ interface Props {
   onStartWork?: (id: number) => void
   loadingId: number | null
   compact?: boolean
+  /** When true, body is always visible without clicking "Развернуть" */
+  forceExpanded?: boolean
   chatNames?: Map<string, string>
   threadNames?: Map<string, string>
   isDragging?: boolean
@@ -176,6 +179,7 @@ export function TaskCard({
   onStartWork,
   loadingId,
   compact = false,
+  forceExpanded = false,
   chatNames,
   threadNames,
   isDragging = false,
@@ -201,8 +205,9 @@ export function TaskCard({
   const snoozeBtnRef = useRef<HTMLButtonElement>(null)
   const [snoozePos, setSnoozePos] = useState<{ top: number; left: number; openUp: boolean }>({ top: 0, left: 0, openUp: false })
 
-  // Body expand/collapse
-  const [expanded, setExpanded] = useState(false)
+  // Body expand/collapse — forceExpanded overrides local state
+  const [expandedLocal, setExpandedLocal] = useState(false)
+  const expanded = forceExpanded || expandedLocal
 
   // Custom reply inline input
   const [replyOpen, setReplyOpen] = useState(false)
@@ -486,23 +491,23 @@ export function TaskCard({
           'break-words font-medium leading-snug text-foreground',
           compact ? 'text-[13px] line-clamp-1' : expanded ? 'text-sm' : 'text-sm line-clamp-2',
         )}>
-          {renderLinkifiedText(stripLeadingMentions(task.title), `title-${task.id}`)}
+          {renderLinkifiedText(stripAllMentions(task.title), `title-${task.id}`)}
         </p>
 
         {/* Body — shown when expanded */}
         {!compact && expanded && task.body && (
           <p className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-muted-foreground">
-            {renderLinkifiedText(stripLeadingMentions(task.body), `body-${task.id}`)}
+            {renderLinkifiedText(stripAllMentions(task.body), `body-${task.id}`)}
           </p>
         )}
 
-        {/* Expand / collapse toggle — only when body exists */}
-        {!compact && task.body && (
+        {/* Expand / collapse toggle — hidden in forceExpanded mode */}
+        {!compact && !forceExpanded && task.body && (
           <button
-            onClick={() => setExpanded((v) => !v)}
+            onClick={() => setExpandedLocal((v) => !v)}
             className="flex items-center gap-0.5 self-start text-[11px] text-muted-foreground/60 transition-colors hover:text-muted-foreground"
           >
-            {expanded
+            {expandedLocal
               ? <><ChevronUp className="h-3 w-3" />Свернуть</>
               : <><ChevronDown className="h-3 w-3" />Развернуть</>
             }
@@ -514,15 +519,64 @@ export function TaskCard({
           <p className="break-words text-[11px] text-muted-foreground">
             {isSnoozed && task.snoozed_until ? null : (
               <>
-                {task.sender_username && (
-                  <><span className="font-medium text-foreground/80">{task.sender_username}</span> · </>
-                )}
+                {(task.sender_first_name || task.sender_username) && (() => {
+                  const displayName = task.sender_first_name || task.sender_username!
+                  const username = task.sender_username?.replace(/^@/, '')
+                  const tgUrl = username
+                    ? `tg://resolve?domain=${username}`
+                    : null
+                  return (
+                    <>
+                      {tgUrl ? (
+                        <button
+                          type="button"
+                          title={task.sender_username ?? undefined}
+                          onClick={() => window.electronAPI?.openExternal(tgUrl)}
+                          className="font-medium text-foreground/80 hover:text-indigo-400 transition-colors cursor-pointer"
+                        >
+                          {displayName}
+                        </button>
+                      ) : (
+                        <span className="font-medium text-foreground/80">{displayName}</span>
+                      )}
+                      {' · '}
+                    </>
+                  )
+                })()}
                 из <span className="font-medium">{chatLabel}</span>
                 {threadLabel ? <> · <span className="text-muted-foreground/80">{threadLabel}</span></> : null}
               </>
             )}
           </p>
         )}
+
+        {/* Peer reactions — reactions from other users on this message */}
+        {!compact && (() => {
+          const reactions = parsePeerReactions(task.peer_reactions)
+          if (!reactions.length) return null
+          // Group by emoji
+          const byEmoji = reactions.reduce<Record<string, typeof reactions>>((acc, r) => {
+            acc[r.emoji] = acc[r.emoji] ?? []
+            acc[r.emoji].push(r)
+            return acc
+          }, {})
+          return (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {Object.entries(byEmoji).map(([emoji, peers]) => (
+                <span
+                  key={emoji}
+                  title={peers.map((p) => p.first_name || p.username || p.user_id || '?').join(', ')}
+                  className="flex items-center gap-0.5 rounded-md border border-border/30 bg-muted/20 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                >
+                  <span>{emoji}</span>
+                  <span className="font-medium text-foreground/70">
+                    {peers.map((p) => p.first_name || p.username || '?').join(', ')}
+                  </span>
+                </span>
+              ))}
+            </div>
+          )
+        })()}
 
         {/* Custom reply input — shown when arrow clicked */}
         {replyOpen && (

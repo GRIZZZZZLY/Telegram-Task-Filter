@@ -23,6 +23,9 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      UPDATE_FEED_URL: ${{ vars.UPDATE_FEED_URL }}
+      S3_BUCKET: ${{ vars.S3_BUCKET }}
+      S3_PREFIX: ${{ vars.S3_PREFIX }}
 
     steps:
       - name: Checkout
@@ -49,6 +52,13 @@ jobs:
           if ($tagVersion -ne $pkgVersion) {
             throw "Tag version '$tagVersion' does not match apps/desktop/package.json version '$pkgVersion'"
           }
+
+      - name: Validate release environment variables
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:UPDATE_FEED_URL)) { throw 'Missing repo variable UPDATE_FEED_URL' }
+          if ([string]::IsNullOrWhiteSpace($env:S3_BUCKET)) { throw 'Missing repo variable S3_BUCKET' }
+          if ([string]::IsNullOrWhiteSpace($env:S3_PREFIX)) { $env:S3_PREFIX = 'stable' }
 
       - name: Prepare Python backend build env
         shell: pwsh
@@ -81,10 +91,32 @@ jobs:
           $target = "${{ github.event.inputs.target }}"
           if ([string]::IsNullOrWhiteSpace($target)) { $target = "nsis" }
           if ($target -eq "all") {
-            npx electron-builder --win --publish always
+            npx electron-builder --win --publish never
           } else {
-            npx electron-builder --win --config.win.target=nsis --publish always
+            npx electron-builder --win --config.win.target=nsis --publish never
           }
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload update feed to S3
+        shell: pwsh
+        run: |
+          $prefix = if ([string]::IsNullOrWhiteSpace($env:S3_PREFIX)) { 'stable' } else { $env:S3_PREFIX.Trim('/') }
+          aws s3 cp "apps/desktop/release" "s3://$env:S3_BUCKET/$prefix/" --recursive --exclude "*" --include "*.yml" --include "*.exe" --include "*.blockmap"
+
+      - name: Create GitHub release entry
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.yml
+            apps/desktop/release/*.blockmap
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

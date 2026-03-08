@@ -16,8 +16,9 @@ import {
   MessageSquare, Hash,
 } from 'lucide-react'
 import type { Task, TaskPriority } from '@/types/task'
+import { parsePeerReactions } from '@/types/task'
 import { cn } from '@/lib/utils'
-import { stripLeadingMentions } from '@/lib/text'
+import { stripAllMentions } from '@/lib/text'
 import { parseBackendDate, withDeviceTimeZone } from '@/lib/date'
 
 // ── Priority config (shared style) ───────────────────────────────────────────
@@ -238,7 +239,7 @@ export function TaskDetailModal({
 
               {/* Title */}
               <h2 className="flex-1 break-words text-sm font-semibold leading-snug text-foreground">
-                {renderLinkifiedText(stripLeadingMentions(task.title), `modal-title-${task.id}`)}
+                {renderLinkifiedText(stripAllMentions(task.title), `modal-title-${task.id}`)}
               </h2>
 
               {/* Close */}
@@ -253,14 +254,28 @@ export function TaskDetailModal({
             {/* ── Meta row: sender + chat + date ──────────────────────────── */}
             <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-2.5 border-b border-border/20 bg-muted/20">
               {/* Sender */}
-              {(task.sender_username || task.sender_id) && (
-                <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                  <User className="h-3 w-3 flex-shrink-0" />
-                  <span className="font-medium text-foreground">
-                    {task.sender_username ?? `id:${task.sender_id}`}
+              {(task.sender_first_name || task.sender_username || task.sender_id) && (() => {
+                const displayName = task.sender_first_name || task.sender_username || `id:${task.sender_id}`
+                const username = task.sender_username?.replace(/^@/, '')
+                const tgUrl = username ? `tg://resolve?domain=${username}` : null
+                return (
+                  <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <User className="h-3 w-3 flex-shrink-0" />
+                    {tgUrl ? (
+                      <button
+                        type="button"
+                        title={task.sender_username ?? undefined}
+                        onClick={() => window.electronAPI?.openExternal(tgUrl)}
+                        className="font-medium text-foreground hover:text-indigo-400 transition-colors cursor-pointer"
+                      >
+                        {displayName}
+                      </button>
+                    ) : (
+                      <span className="font-medium text-foreground">{displayName}</span>
+                    )}
                   </span>
-                </span>
-              )}
+                )
+              })()}
 
               {/* Chat */}
               {(task.chat_id || task.source_chat) && (
@@ -296,15 +311,42 @@ export function TaskDetailModal({
               </div>
             )}
 
+            {/* ── Peer reactions ───────────────────────────────────────────── */}
+            {(() => {
+              const reactions = parsePeerReactions(task.peer_reactions)
+              if (!reactions.length) return null
+              const byEmoji = reactions.reduce<Record<string, typeof reactions>>((acc, r) => {
+                acc[r.emoji] = acc[r.emoji] ?? []
+                acc[r.emoji].push(r)
+                return acc
+              }, {})
+              return (
+                <div className="flex flex-wrap items-center gap-2 border-b border-border/20 px-4 py-2">
+                  <span className="text-[11px] text-muted-foreground">Реакции коллег:</span>
+                  {Object.entries(byEmoji).map(([emoji, peers]) => (
+                    <span
+                      key={emoji}
+                      className="flex items-center gap-1 rounded-md border border-border/30 bg-muted/20 px-2 py-0.5 text-[11px]"
+                    >
+                      <span>{emoji}</span>
+                      <span className="text-foreground/80">
+                        {peers.map((p) => p.first_name || p.username || '?').join(', ')}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              )
+            })()}
+
             {/* ── Body — full scrollable message text ─────────────────────── */}
             <div className="flex-1 overflow-y-auto px-4 py-3">
               {task.body ? (
                 <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground">
-                  {renderLinkifiedText(stripLeadingMentions(task.body), `modal-body-${task.id}`)}
+                  {renderLinkifiedText(stripAllMentions(task.body), `modal-body-${task.id}`)}
                 </p>
               ) : (
                 <p className="break-words text-[13px] leading-relaxed text-foreground">
-                  {renderLinkifiedText(stripLeadingMentions(task.title), `modal-title-fallback-${task.id}`)}
+                  {renderLinkifiedText(stripAllMentions(task.title), `modal-title-fallback-${task.id}`)}
                 </p>
               )}
             </div>

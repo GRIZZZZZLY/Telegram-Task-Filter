@@ -609,25 +609,34 @@ export function SettingsScreen({ onClose, pinSet, onPinChanged, onSaved }: Props
 
           {/* ── 3. Reaction ─────────────────────────────────────────────── */}
           <Section icon={<ThumbsUp className="h-4 w-4" />} title="Реакция на выполнение">
-            <div>
-              <p className="mb-1.5 text-[12px] text-muted-foreground">Реакция</p>
-              <div className="flex flex-wrap gap-1.5">
-                {REACTION_OPTIONS.map((emoji) => (
-                  <button
-                    key={emoji}
-                    onClick={() => patch('done_reaction', emoji)}
-                    className={cn(
-                      'flex h-8 w-8 items-center justify-center rounded-lg border text-lg transition-colors',
-                      settings.done_reaction === emoji
-                        ? 'border-indigo-500 bg-indigo-500/20'
-                        : 'border-border/50 hover:border-border',
-                    )}
-                  >
-                    {emoji}
-                  </button>
-                ))}
+            <Row label="Отправлять реакцию" hint="Ставить эмодзи-реакцию на сообщение при выполнении">
+              <Toggle
+                checked={settings.done_reaction_enabled}
+                onChange={(v) => patch('done_reaction_enabled', v)}
+              />
+            </Row>
+
+            {settings.done_reaction_enabled && (
+              <div>
+                <p className="mb-1.5 text-[12px] text-muted-foreground">Реакция</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {REACTION_OPTIONS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      onClick={() => patch('done_reaction', emoji)}
+                      className={cn(
+                        'flex h-8 w-8 items-center justify-center rounded-lg border text-lg transition-colors',
+                        settings.done_reaction === emoji
+                          ? 'border-indigo-500 bg-indigo-500/20'
+                          : 'border-border/50 hover:border-border',
+                      )}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             <Row label="Отправлять ответ в чат">
               <Toggle
@@ -657,6 +666,52 @@ export function SettingsScreen({ onClose, pinSet, onPinChanged, onSaved }: Props
                 className="w-24 accent-indigo-500"
               />
             </Row>
+
+            <Row
+              label="Реакция на кастомный ответ"
+              hint="Ставить отдельную реакцию, когда задача выполнена с кастомным текстом"
+            >
+              <Toggle
+                checked={settings.custom_reply_reaction_enabled}
+                onChange={(v) => patch('custom_reply_reaction_enabled', v)}
+              />
+            </Row>
+
+            {settings.custom_reply_reaction_enabled && (
+              <div>
+                <p className="mb-1.5 text-[12px] text-muted-foreground">
+                  Реакция для кастомного ответа
+                  <span className="ml-1 text-muted-foreground/60">(пусто = как основная)</span>
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => patch('custom_reply_reaction', '')}
+                    className={cn(
+                      'flex h-8 items-center justify-center rounded-lg border px-2 text-[11px] transition-colors',
+                      settings.custom_reply_reaction === ''
+                        ? 'border-indigo-500 bg-indigo-500/20 text-indigo-300'
+                        : 'border-border/50 text-muted-foreground hover:border-border',
+                    )}
+                  >
+                    как основная
+                  </button>
+                  {REACTION_OPTIONS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      onClick={() => patch('custom_reply_reaction', emoji)}
+                      className={cn(
+                        'flex h-8 w-8 items-center justify-center rounded-lg border text-lg transition-colors',
+                        settings.custom_reply_reaction === emoji
+                          ? 'border-indigo-500 bg-indigo-500/20'
+                          : 'border-border/50 hover:border-border',
+                      )}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </Section>
 
           {/* ── 4. Cleanup ──────────────────────────────────────────────── */}
@@ -1033,11 +1088,28 @@ export function SettingsScreen({ onClose, pinSet, onPinChanged, onSaved }: Props
                 </div>
               </Row>
             )}
-            <Row label="Компактный режим" hint="Меньше деталей, больше задач">
-              <Toggle
-                checked={settings.compact_mode}
-                onChange={(v) => patch('compact_mode', v)}
-              />
+            <Row label="Режим отображения задач" hint="Компактный / Стандартный / Развёрнутый">
+              <div className="flex gap-1 rounded-lg border border-border/40 bg-muted/20 p-0.5">
+                {(['compact', 'standard', 'expanded'] as const).map((mode) => {
+                  const labels = { compact: 'Компактный', standard: 'Стандартный', expanded: 'Развёрнутый' }
+                  const active = (settings.task_display_mode || (settings.compact_mode ? 'compact' : 'standard')) === mode
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => patch('task_display_mode', mode)}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
+                        active
+                          ? 'bg-indigo-500 text-white shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {labels[mode]}
+                    </button>
+                  )
+                })}
+              </div>
             </Row>
           </Section>
 

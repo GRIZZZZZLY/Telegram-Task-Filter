@@ -98,3 +98,11 @@ def _run_migrations() -> None:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN source_edited_at DATETIME"))
             import logging
             logging.getLogger(__name__).info("Migration: added tasks.source_edited_at")
+        if "sender_first_name" not in existing:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN sender_first_name VARCHAR(200)"))
+            import logging
+            logging.getLogger(__name__).info("Migration: added tasks.sender_first_name")
+        if "peer_reactions" not in existing:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN peer_reactions TEXT"))
+            import logging
+            logging.getLogger(__name__).info("Migration: added tasks.peer_reactions")

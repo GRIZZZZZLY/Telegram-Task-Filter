@@ -23,6 +23,8 @@ class TaskOut(BaseModel):
     trigger_message_id: Optional[int] = None
     sender_id: Optional[str] = None
     sender_username: Optional[str] = None
+    sender_first_name: Optional[str] = None
+    peer_reactions: Optional[str] = None  # JSON: [{user_id, username, first_name, emoji, ts}]
     committed_at: Optional[datetime] = None
     snoozed_until: Optional[datetime] = None
     sort_order: Optional[int] = None
@@ -93,6 +95,9 @@ class SettingsOut(BaseModel):
     done_send_reply: bool
     done_reply_text: str
     done_commit_delay_seconds: int
+    done_reaction_enabled: bool
+    custom_reply_reaction_enabled: bool
+    custom_reply_reaction: str
     # Filters
     filter_ignore_own: bool
     filter_min_text_length: int
@@ -106,6 +111,7 @@ class SettingsOut(BaseModel):
     sound_enabled: bool
     notification_sound: str
     compact_mode: bool
+    task_display_mode: str
     # Inbox sort
     tasks_inbox_sort_direction: str
     tasks_inbox_sort_by_priority: bool
@@ -121,6 +127,9 @@ class SettingsIn(BaseModel):
     done_send_reply: Optional[bool] = None
     done_reply_text: Optional[str] = None
     done_commit_delay_seconds: Optional[int] = Field(default=None, ge=0, le=60)
+    done_reaction_enabled: Optional[bool] = None
+    custom_reply_reaction_enabled: Optional[bool] = None
+    custom_reply_reaction: Optional[str] = None
     filter_ignore_own: Optional[bool] = None
     filter_min_text_length: Optional[int] = Field(default=None, ge=0, le=2000)
     filter_strict_mentions: Optional[bool] = None
@@ -130,5 +139,6 @@ class SettingsIn(BaseModel):
     sound_enabled: Optional[bool] = None
     notification_sound: Optional[str] = None
     compact_mode: Optional[bool] = None
+    task_display_mode: Optional[str] = None
     tasks_inbox_sort_direction: Optional[str] = None
     tasks_inbox_sort_by_priority: Optional[bool] = None
