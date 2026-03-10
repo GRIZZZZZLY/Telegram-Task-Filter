@@ -74,7 +74,11 @@ class TaskService:
 
     # ── Done flow ──────────────────────────────────────────────────────────
 
-    def mark_done(self, task_id: int, custom_reply: Optional[str] = None) -> Task:
+    def mark_done(
+        self,
+        task_id: int,
+        custom_reply: Optional[str] = None,
+    ) -> Task:
         """Set status=done, write 'done' event. Returns updated task.
 
         Staged-commit: committed_at is set here as a placeholder.

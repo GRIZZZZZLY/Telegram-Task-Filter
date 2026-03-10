@@ -40,6 +40,7 @@ export interface Task {
   work_started_at: string | null
   source_changed: boolean
   source_edited_at: string | null
+  media_type?: string | null
 }
 
 export interface TaskListResponse {

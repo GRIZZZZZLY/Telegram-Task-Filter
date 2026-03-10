@@ -13,7 +13,6 @@ export interface AppSettings {
   done_reaction_enabled: boolean
   custom_reply_reaction_enabled: boolean
   custom_reply_reaction: string
-
   // Filters
   filter_ignore_own: boolean
   filter_min_text_length: number
@@ -23,6 +22,7 @@ export interface AppSettings {
   cleanup_done_after_days: number
 
   // Catch-up scan
+  catchup_enabled: boolean
   catchup_hours: number
 
   // UI

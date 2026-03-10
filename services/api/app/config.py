@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     # When True and a custom reply is provided, also send custom_reply_reaction
     # on the source message (in addition to the reply text).
     custom_reply_reaction_enabled: bool = False
+
     # Emoji to use as reaction when a custom reply is sent.
     # Empty string = use done_reaction as fallback.
     custom_reply_reaction: str = ""
@@ -84,8 +85,10 @@ class Settings(BaseSettings):
 
     # ── Catch-up scan on startup ──────────────────────────────────────────
     # Scans message history on startup to catch messages received while offline.
-    # 0 = disabled. Scans from midnight of current day when > 0.
+    # catchup_enabled=False → auto-scan skipped on startup (manual scan still works).
+    # catchup_hours: how many hours back to scan (0 also disables).
     # Messages that already have our reaction are created as status=done (not inbox).
+    catchup_enabled: bool = False
     catchup_hours: int = 8
 
     # ── UI preferences ───────────────────────────────────────────────────

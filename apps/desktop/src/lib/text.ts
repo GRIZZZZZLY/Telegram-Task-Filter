@@ -75,25 +75,31 @@ export function stripLeadingMentions(text: string, handles = _handles): string {
 
 // ── Strip all @mentions ───────────────────────────────────────────────────────
 
-const _MENTION_RE = /@[A-Za-z0-9_]{3,}/g
+// Matches @handle — 1+ alphanumeric/underscore chars after @
+// No minimum length so short handles like @ab are also stripped
+const _MENTION_RE = /@[A-Za-z0-9_]+/g
 
 /**
  * Remove ALL @mention tokens from text (any handle, not just configured ones).
  *
- * After removal, collapses extra whitespace/punctuation and capitalises the
- * first letter. Falls back to the original text if stripping leaves nothing.
+ * Intentionally does NOT collapse dots, slashes or colons so that URLs
+ * embedded in the text are preserved intact after mention removal.
+ * Only collapses spaces, tabs, commas and semicolons left behind by removal.
+ *
+ * Falls back to the original text if stripping leaves nothing.
  *
  * Examples:
- *   "@user1 @user2 сделай отчёт"            → "Сделай отчёт"
- *   "@boss согласуй с @alice и сделай"       → "Согласуй с и сделай"
- *   "@only_mention"                           → "@only_mention"  (fallback)
+ *   "@user1 @user2 сделай отчёт"              → "Сделай отчёт"
+ *   "@boss согласуй с @alice и сделай"         → "Согласуй с и сделай"
+ *   "@only_mention"                             → "@only_mention"  (fallback)
+ *   "@user https://example.com/path сделай"    → "https://example.com/path сделай"
  */
 export function stripAllMentions(text: string): string {
   if (!text) return text
 
   const stripped = text
-    .replace(_MENTION_RE, '')          // remove all @handles
-    .replace(/[\s,.:;!?]+/g, ' ')     // collapse leftover punctuation/spaces
+    .replace(_MENTION_RE, '')   // remove all @handles
+    .replace(/[ \t,;]+/g, ' ') // collapse only spaces/tabs and safe punctuation
     .trim()
 
   if (!stripped) return text // fallback: stripping ate everything

@@ -275,7 +275,7 @@ export function TaskCard({
 
   const handleDoneDefault = () => {
     setReplyOpen(false)
-    onDone(task.id)
+    onDone(task.id, undefined)
   }
 
   const handleDoneWithReply = () => {
@@ -347,12 +347,12 @@ export function TaskCard({
       exit={{ opacity: 0, scale: 0.97 }}
       transition={{ duration: 0.2 }}
       className={cn(
-        'group relative flex items-stretch rounded-xl border border-border/40 bg-card/80 shadow-sm backdrop-blur-sm',
-        'transition-colors hover:border-border/70 hover:bg-card',
+        'group relative flex items-stretch rounded-xl border bg-card/80 shadow-sm backdrop-blur-sm',
+        'transition-colors hover:bg-card',
         isDone && 'opacity-60',
+        'border-border/40 hover:border-border/70',
       )}
     >
-
       {/* Priority bar — thin coloured stripe (kept for visual accent) */}
       <div className={cn('w-1 flex-shrink-0 rounded-l-xl', cfg.bar)} />
 
@@ -497,6 +497,27 @@ export function TaskCard({
             {renderLinkifiedText(stripAllMentions(task.body), `body-${task.id}`)}
           </p>
         )}
+
+        {/* Media placeholder — shown when task has attached media */}
+        {!compact && task.media_type && (
+          <div className="flex items-center gap-2 rounded-lg border border-border/30 bg-muted/20 px-2.5 py-1.5">
+            <span className="text-[14px]">
+              {task.media_type === 'video' ? '🎥'
+                : task.media_type === 'voice' || task.media_type === 'audio' ? '🔊'
+                : '📎'}
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              {task.media_type === 'photo' ? 'Фото'
+                : task.media_type === 'video' ? 'Видео'
+                : task.media_type === 'voice' ? 'Голосовое'
+                : task.media_type === 'audio' ? 'Аудио'
+                : task.media_type === 'location' ? 'Геолокация'
+                : 'Вложение'}
+            </span>
+          </div>
+        )}
+
+
 
         {/* Expand / collapse toggle — hidden in forceExpanded mode */}
         {!compact && !forceExpanded && task.body && (

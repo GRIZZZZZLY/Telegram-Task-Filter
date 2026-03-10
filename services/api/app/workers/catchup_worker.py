@@ -35,9 +35,16 @@ async def run_catchup(scan_hours: int | None = None) -> dict:
     from ..services.notification_service import manager
 
     from telethon.tl.types import MessageEntityMention, MessageEntityMentionName
+    from .tg_listener import _detect_media_type
 
     s = get_settings()
     hours = scan_hours if scan_hours is not None else s.catchup_hours
+
+    # Auto-scan gate: if called without explicit scan_hours (i.e. startup),
+    # respect catchup_enabled. Manual scan (scan_hours provided) always runs.
+    if scan_hours is None and not s.catchup_enabled:
+        logger.info("Catch-up auto-scan disabled (catchup_enabled=False)")
+        return {"scanned": 0, "created": 0, "updated": 0, "skipped_done": 0, "skipped_dup": 0}
 
     if hours == 0:
         logger.info("Catch-up scan disabled (catchup_hours=0)")
@@ -263,6 +270,7 @@ async def run_catchup(scan_hours: int | None = None) -> dict:
                         sender_first_name=sender_fname,
                         source_changed=False,
                         source_edited_at=source_edited_at,
+                        media_type=_detect_media_type(msg),
                     )
                     db.add(task)
                     db.commit()

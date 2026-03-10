@@ -258,6 +258,7 @@ class TelegramService:
             logger.info("Reaction skipped (disabled) | chat=%s msg=%d", chat_id, message_id)
 
         reply_message_id: Optional[int] = None
+
         if send_reply:
             try:
                 msg = await client.send_message(

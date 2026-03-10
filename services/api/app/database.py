@@ -106,3 +106,7 @@ def _run_migrations() -> None:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN peer_reactions TEXT"))
             import logging
             logging.getLogger(__name__).info("Migration: added tasks.peer_reactions")
+        if "media_type" not in existing:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN media_type VARCHAR(20)"))
+            import logging
+            logging.getLogger(__name__).info("Migration: added tasks.media_type")

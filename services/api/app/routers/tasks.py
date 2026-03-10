@@ -37,7 +37,7 @@ def list_tasks(
 
 
 @router.post("/{task_id}/done", response_model=TaskOut, summary="Mark task done")
-def mark_task_done(task_id: int, body: DoneIn = DoneIn(), db: Session = Depends(get_db)) -> Any:
+def mark_task_done(task_id: int, body: DoneIn, db: Session = Depends(get_db)) -> Any:
     """Mark task as done. Writes a 'done' event. Sets committed_at timestamp.
 
     The Telegram reaction is sent after the staged-commit delay window (stage 2).
@@ -47,7 +47,7 @@ def mark_task_done(task_id: int, body: DoneIn = DoneIn(), db: Session = Depends(
     - **409** task already done
     """
     svc = TaskService(db)
-    return svc.mark_done(task_id, custom_reply=body.custom_reply)
+    return svc.mark_done(task_id, body.custom_reply)
 
 
 @router.post("/reorder", summary="Reorder inbox tasks")

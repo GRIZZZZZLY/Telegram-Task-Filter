@@ -339,7 +339,7 @@ export function TaskDetailModal({
             })()}
 
             {/* ── Body — full scrollable message text ─────────────────────── */}
-            <div className="flex-1 overflow-y-auto px-4 py-3">
+            <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
               {task.body ? (
                 <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground">
                   {renderLinkifiedText(stripAllMentions(task.body), `modal-body-${task.id}`)}
@@ -349,6 +349,39 @@ export function TaskDetailModal({
                   {renderLinkifiedText(stripAllMentions(task.title), `modal-title-fallback-${task.id}`)}
                 </p>
               )}
+
+              {/* Media placeholder */}
+              {task.media_type && (() => {
+                const links = buildTgLinks(task.chat_id || task.source_chat || '', task.source_message_id)
+                const icon = task.media_type === 'video' ? '🎥'
+                  : task.media_type === 'voice' || task.media_type === 'audio' ? '🔊'
+                  : '📎'
+                const label = task.media_type === 'photo' ? 'Фото'
+                  : task.media_type === 'video' ? 'Видео'
+                  : task.media_type === 'voice' ? 'Голосовое сообщение'
+                  : task.media_type === 'audio' ? 'Аудио'
+                  : task.media_type === 'location' ? 'Геолокация'
+                  : 'Вложение'
+                return (
+                  <div className="flex items-center gap-3 rounded-xl border border-border/40 bg-muted/20 px-3 py-2.5">
+                    <span className="text-[20px]">{icon}</span>
+                    <span className="flex-1 text-[12px] text-muted-foreground">{label}</span>
+                    <a
+                      href={links.web}
+                      className="flex items-center gap-1.5 rounded-lg border border-border/50 px-2.5 py-1 text-[12px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+                      onClick={(e) => {
+                        if (window.electronAPI) {
+                          e.preventDefault()
+                          window.electronAPI.openExternal(links.deep)
+                        }
+                      }}
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Открыть в Telegram
+                    </a>
+                  </div>
+                )
+              })()}
             </div>
 
             {/* ── Actions footer ───────────────────────────────────────────── */}

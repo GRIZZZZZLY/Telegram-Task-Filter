@@ -28,6 +28,39 @@ from ..services.notification_service import manager
 from ..services.rule_engine import MessageMeta, RuleEngine
 from ..services.telegram_service import TelegramService
 
+
+def _detect_media_type(msg) -> str | None:
+    """Return a simple media type string for a Telethon Message, or None.
+
+    Checks msg.media against known Telethon media types without importing
+    them at module level (they are only available when telethon is installed).
+    """
+    media = getattr(msg, "media", None)
+    if media is None:
+        return None
+    cls = type(media).__name__
+    if cls == "MessageMediaPhoto":
+        return "photo"
+    if cls == "MessageMediaDocument":
+        # Inspect document attributes to distinguish video / audio / voice
+        doc = getattr(media, "document", None)
+        if doc is not None:
+            attrs = getattr(doc, "attributes", []) or []
+            attr_names = {type(a).__name__ for a in attrs}
+            if "DocumentAttributeVideo" in attr_names:
+                return "video"
+            if "DocumentAttributeAudio" in attr_names:
+                # Voice messages have voice=True on DocumentAttributeAudio
+                for a in attrs:
+                    if type(a).__name__ == "DocumentAttributeAudio":
+                        if getattr(a, "voice", False):
+                            return "voice"
+                return "audio"
+        return "document"
+    if cls == "MessageMediaGeo":
+        return "location"
+    return None
+
 logger = logging.getLogger(__name__)
 
 # Track currently registered handlers so we can remove them on restart
@@ -405,6 +438,7 @@ async def start_listener() -> None:
                 sender_id=str(msg.sender_id) if msg.sender_id else None,
                 sender_username=sender_uname,
                 sender_first_name=sender_fname,
+                media_type=_detect_media_type(msg),
             )
             db.add(task)
             db.commit()

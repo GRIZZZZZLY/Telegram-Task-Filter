@@ -755,17 +755,29 @@ export function SettingsScreen({ onClose, pinSet, onPinChanged, onSaved }: Props
           <Section icon={<History className="h-4 w-4" />} title="Сканирование истории">
             <Row
               label="Авто-скан при запуске"
-              hint={settings.catchup_hours === 0 ? 'Выключено' : `Последние ${settings.catchup_hours} ч`}
+              hint="Сканировать историю сообщений при каждом запуске приложения"
             >
-              <input
-                type="number"
-                min={0}
-                max={168}
-                value={settings.catchup_hours}
-                onChange={(e) => patch('catchup_hours', Number(e.target.value))}
-                className="w-16 rounded-md border border-border/50 bg-background px-2 py-1 text-[12px] text-center outline-none focus:border-indigo-500"
+              <Toggle
+                checked={settings.catchup_enabled}
+                onChange={(v) => patch('catchup_enabled', v)}
               />
             </Row>
+
+            {settings.catchup_enabled && (
+              <Row
+                label="Глубина скана"
+                hint={`Последние ${settings.catchup_hours} ч`}
+              >
+                <input
+                  type="number"
+                  min={1}
+                  max={168}
+                  value={settings.catchup_hours}
+                  onChange={(e) => patch('catchup_hours', Number(e.target.value))}
+                  className="w-16 rounded-md border border-border/50 bg-background px-2 py-1 text-[12px] text-center outline-none focus:border-indigo-500"
+                />
+              </Row>
+            )}
 
             <div className="flex flex-col gap-2">
               <p className="text-[12px] text-muted-foreground">Ручной скан истории</p>

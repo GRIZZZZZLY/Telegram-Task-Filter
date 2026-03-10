@@ -93,6 +93,10 @@ class Task(Base):
     # Tracks all reactions from other users on the source Telegram message.
     peer_reactions = Column(Text, nullable=True)
 
+    # Media type attached to the source Telegram message.
+    # Values: "photo" | "video" | "document" | "audio" | "voice" | None
+    media_type = Column(String(20), nullable=True)
+
     events = relationship("Event", back_populates="task", cascade="all, delete-orphan")
 
 

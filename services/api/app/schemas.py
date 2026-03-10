@@ -25,6 +25,7 @@ class TaskOut(BaseModel):
     sender_username: Optional[str] = None
     sender_first_name: Optional[str] = None
     peer_reactions: Optional[str] = None  # JSON: [{user_id, username, first_name, emoji, ts}]
+    media_type: Optional[str] = None      # "photo" | "video" | "document" | "audio" | "voice" | None
     committed_at: Optional[datetime] = None
     snoozed_until: Optional[datetime] = None
     sort_order: Optional[int] = None
@@ -105,6 +106,7 @@ class SettingsOut(BaseModel):
     # Cleanup
     cleanup_done_after_days: int
     # Catch-up scan
+    catchup_enabled: bool
     catchup_hours: int
     # UI
     notifications_enabled: bool
@@ -134,6 +136,7 @@ class SettingsIn(BaseModel):
     filter_min_text_length: Optional[int] = Field(default=None, ge=0, le=2000)
     filter_strict_mentions: Optional[bool] = None
     cleanup_done_after_days: Optional[int] = Field(default=None, ge=0, le=365)
+    catchup_enabled: Optional[bool] = None
     catchup_hours: Optional[int] = Field(default=None, ge=0, le=168)
     notifications_enabled: Optional[bool] = None
     sound_enabled: Optional[bool] = None

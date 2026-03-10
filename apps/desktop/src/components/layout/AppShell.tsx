@@ -8,6 +8,7 @@ import { TaskList } from '@/components/tasks/TaskList'
 import { SettingsScreen } from '@/components/settings/SettingsScreen'
 import { StatsScreen } from '@/components/stats/StatsScreen'
 import { TelegramAuthScreen } from '@/components/auth/TelegramAuthScreen'
+import { UpdateModal } from '@/components/ui/UpdateModal'
 import { getSettings } from '@/api/settings'
 import { getAuthStatus } from '@/api/auth'
 import { useBackendReady } from '@/hooks/useBackendReady'
@@ -56,10 +57,21 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
   const [inboxCount, setInboxCount] = useState(0)
   const [showSettings, setShowSettings] = useState(false)
   const [showStats, setShowStats] = useState(false)
+  const [showUpdateModal, setShowUpdateModal] = useState(false)
   const [displayMode, setDisplayMode] = useState<'compact' | 'standard' | 'expanded'>('standard')
   const [authState, setAuthState] = useState<AuthState>({ checked: false })
   const [taskRefreshKey, setTaskRefreshKey] = useState(0)
   const tabCounts = useTabCounts()
+
+  // Show update modal automatically when a new version is available
+  useEffect(() => {
+    if (!window.electronAPI) return
+    const cleanup = window.electronAPI.onUpdatesStateChanged((raw) => {
+      const s = raw as { status?: string } | null
+      if (s?.status === 'available') setShowUpdateModal(true)
+    })
+    return cleanup
+  }, [])
 
   // Once backend is ready, check if Telegram is authorized
   useEffect(() => {
@@ -261,6 +273,11 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
     <div className="relative flex h-screen flex-col overflow-hidden">
       <AnimatedGradientBg />
       <WindowControls />
+
+      {/* Update modal — shown automatically when a new version is detected */}
+      {showUpdateModal && (
+        <UpdateModal onDismiss={() => setShowUpdateModal(false)} />
+      )}
 
       {/* Settings — монтируется поверх основного UI, но не размонтирует его */}
       {showSettings && (

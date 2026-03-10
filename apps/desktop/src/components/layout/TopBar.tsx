@@ -12,9 +12,10 @@ interface Props {
 /** True when the app runs inside Electron (not a plain browser). */
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI
 
-export function TopBar({ inboxCount, onOpenSettings, onOpenStats }: Props) {
+export function TopBar({ onOpenSettings, onOpenStats }: Props) {
   const { theme, toggle } = useTheme()
   const [pinned, setPinned] = useState(true)
+  const [version, setVersion] = useState<string | null>(null)
 
   // Sync pin state from Electron on mount and listen for tray-menu changes
   useEffect(() => {
@@ -22,6 +23,12 @@ export function TopBar({ inboxCount, onOpenSettings, onOpenStats }: Props) {
     void window.electronAPI!.getPin().then(setPinned)
     const cleanup = window.electronAPI!.onPinChanged(setPinned)
     return cleanup
+  }, [])
+
+  // Fetch app version once on mount
+  useEffect(() => {
+    if (!isElectron) return
+    void window.electronAPI!.getVersion().then(setVersion)
   }, [])
 
   const handlePin = () => window.electronAPI?.togglePin()
@@ -37,14 +44,14 @@ export function TopBar({ inboxCount, onOpenSettings, onOpenStats }: Props) {
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       />
 
-      {/* Left: title + badge */}
-      <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+      {/* Left: title + version */}
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
         <span className="min-w-0 truncate text-sm font-semibold tracking-tight select-none">
-          🔵 TG Filter
+          TTF
         </span>
-        {inboxCount > 0 && (
-          <span className="flex h-4 min-w-4 flex-shrink-0 items-center justify-center rounded-full bg-indigo-500 px-1 text-[10px] font-bold text-white select-none max-[360px]:hidden">
-            {inboxCount}
+        {version && (
+          <span className="text-[11px] text-muted-foreground/60 font-normal select-none tracking-tight">
+            v{version}
           </span>
         )}
       </div>
