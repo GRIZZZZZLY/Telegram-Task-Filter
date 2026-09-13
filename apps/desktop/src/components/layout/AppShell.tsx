@@ -57,6 +57,21 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
   const [inboxCount, setInboxCount] = useState(0)
   const [showSettings, setShowSettings] = useState(false)
   const [showStats, setShowStats] = useState(false)
+
+  // Escape closes Settings/Stats. Not while typing in a field — a stray Escape
+  // in a settings input must not throw the whole panel away.
+  useEffect(() => {
+    if (!showSettings && !showStats) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      setShowSettings(false)
+      setShowStats(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showSettings, showStats])
   const [showUpdateModal, setShowUpdateModal] = useState(false)
   const [displayMode, setDisplayMode] = useState<'compact' | 'standard' | 'expanded'>('standard')
   const [authState, setAuthState] = useState<AuthState>({ checked: false })
@@ -323,6 +338,7 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
             displayMode={displayMode}
             onInboxCountChange={setInboxCount}
             refreshTrigger={taskRefreshKey}
+            overlayOpen={showSettings || showStats}
           />
         </main>
       </div>

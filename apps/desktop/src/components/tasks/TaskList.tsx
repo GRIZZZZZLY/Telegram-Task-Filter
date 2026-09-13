@@ -22,23 +22,29 @@ interface Props {
   onEscape?: () => void
   /** Increment to force-refetch tasks (e.g. after sort settings change) */
   refreshTrigger?: number
+  /** Settings/Stats overlay is open — list is hidden, so shortcuts must be off */
+  overlayOpen?: boolean
 }
 
-export function TaskList({ tab, compact = false, displayMode, onInboxCountChange, onEscape, refreshTrigger }: Props) {
+export function TaskList({ tab, compact = false, displayMode, onInboxCountChange, onEscape, refreshTrigger, overlayOpen = false }: Props) {
   // Resolve effective display mode: prefer displayMode prop, fall back to compact legacy
   const effectiveMode = displayMode ?? (compact ? 'compact' : 'standard')
   const {
     tasks,
     loading,
     error,
+    actionError,
     loadingId,
     pendingUndo,
+    pendingDismiss,
     failedCommitIds,
     handleDone,
     handleDismiss,
     handleSnooze,
     handleReopen,
     handleUndoDone,
+    handleUndoDismiss,
+    clearActionError,
     handlePriorityChange,
     handleReorder,
     handlePin,
@@ -73,8 +79,44 @@ export function TaskList({ tab, compact = false, displayMode, onInboxCountChange
     onUndo: pendingUndo ? () => void handleUndoDone(pendingUndo.id) : null,
     searchInputRef,
     onEscape,
-    enabled: tab === 'inbox',
+    enabled: tab === 'inbox' && !overlayOpen,
   })
+
+  // Action errors fade on their own; the list underneath never goes away
+  useEffect(() => {
+    if (!actionError) return
+    const t = setTimeout(clearActionError, 5000)
+    return () => clearTimeout(t)
+  }, [actionError, clearActionError])
+
+  const notice = actionError ? (
+    <div
+      role="alert"
+      className="mb-2 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-400"
+    >
+      <span className="min-w-0 flex-1 break-words">Не получилось: {actionError}</span>
+      <button
+        onClick={clearActionError}
+        aria-label="Скрыть сообщение"
+        className="shrink-0 rounded p-0.5 text-red-400/70 transition-colors hover:text-red-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400/60"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  ) : pendingDismiss ? (
+    <div
+      role="status"
+      className="mb-2 flex items-center gap-2 rounded-lg border border-border/40 bg-muted/30 px-3 py-2 text-[12px] text-muted-foreground"
+    >
+      <span className="min-w-0 flex-1 truncate">Убрано: {pendingDismiss.title}</span>
+      <button
+        onClick={handleUndoDismiss}
+        className="shrink-0 font-medium text-foreground transition-colors hover:text-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400/60"
+      >
+        Отменить
+      </button>
+    </div>
+  ) : null
 
   // ── Drag-and-drop state ──────────────────────────────────────────────────
   const dragIdRef = useRef<number | null>(null)
@@ -184,20 +226,25 @@ export function TaskList({ tab, compact = false, displayMode, onInboxCountChange
 
   if (tasks.length === 0) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center">
-        <p className="text-sm text-muted-foreground">
-          {tab === 'inbox'
-            ? 'Нет активных'
-            : tab === 'done'
-              ? 'Нет завершённых'
-              : 'Нет отложенных'}
-        </p>
-      </div>
+      <>
+        {notice}
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center">
+          <p className="text-sm text-muted-foreground">
+            {tab === 'inbox'
+              ? 'Нет активных'
+              : tab === 'done'
+                ? 'Нет завершённых'
+                : 'Нет отложенных'}
+          </p>
+        </div>
+      </>
     )
   }
 
   return (
     <>
+      {notice}
+
       {/* Search bar */}
       <div className="relative mb-2">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />

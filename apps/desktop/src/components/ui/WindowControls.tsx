@@ -106,7 +106,7 @@ export function WindowControls() {
         </button>
 
         {showCloseMenu && (
-          <div className="absolute right-0 top-[calc(100%+4px)] w-52 overflow-hidden rounded-xl border border-border/60 bg-popover shadow-2xl ring-1 ring-black/10">
+          <div className="absolute right-0 top-[calc(100%+4px)] w-52 overflow-hidden rounded-xl border border-border/60 bg-card shadow-2xl ring-1 ring-black/10">
             <button
               onClick={() => {
                 window.electronAPI?.closeToTray()

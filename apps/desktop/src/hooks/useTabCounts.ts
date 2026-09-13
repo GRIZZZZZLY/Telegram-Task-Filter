@@ -16,8 +16,8 @@ export function useTabCounts(): TabCounts {
   const refresh = useCallback(async () => {
     try {
       const [done, snoozed] = await Promise.all([
-        getTasks({ status: 'done', limit: 0 }),
-        getTasks({ status: 'snoozed', limit: 0 }),
+        getTasks({ status: 'done', limit: 1 }), // API rejects limit=0 (422); only `total` is used
+        getTasks({ status: 'snoozed', limit: 1 }), // API rejects limit=0 (422); only `total` is used
       ])
       setCounts({ done: done.total, snoozed: snoozed.total })
     } catch {

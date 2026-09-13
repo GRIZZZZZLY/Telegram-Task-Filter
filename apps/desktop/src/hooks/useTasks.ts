@@ -27,15 +27,22 @@ function normalizeTask(raw: Task | (Record<string, unknown> & { id: number })): 
 interface UseTasksResult {
   tasks: Task[]
   loading: boolean
+  /** Load error — list could not be fetched */
   error: string | null
+  /** Error from a task action (done/snooze/…) — list stays visible */
+  actionError: string | null
   loadingId: number | null
   pendingUndo: { id: number; title: string } | null
+  /** Task hidden locally; dismiss request is deferred until the undo window expires */
+  pendingDismiss: { id: number; title: string } | null
   failedCommitIds: Set<number>
   handleDone: (id: number, customReply?: string) => Promise<void>
   handleDismiss: (id: number) => Promise<void>
   handleSnooze: (id: number, minutes: number) => Promise<void>
   handleReopen: (id: number) => Promise<void>
   handleUndoDone: (id: number) => Promise<void>
+  handleUndoDismiss: () => void
+  clearActionError: () => void
   handlePriorityChange: (id: number, priority: TaskPriority) => Promise<void>
   handleReorder: (ids: number[]) => Promise<void>
   handlePin: (id: number) => Promise<void>
@@ -45,12 +52,18 @@ interface UseTasksResult {
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>
 }
 
+const DISMISS_UNDO_MS = 5000
+
 export function useTasks(status: string, refreshTrigger?: number): UseTasksResult {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [loadingId, setLoadingId] = useState<number | null>(null)
   const [pendingUndo, setPendingUndo] = useState<{ id: number; title: string } | null>(null)
+  const [pendingDismiss, setPendingDismiss] = useState<{ id: number; title: string } | null>(null)
+  // Deferred dismiss: id + timer that will send the DELETE unless undone
+  const dismissRef = useRef<{ id: number; timer: ReturnType<typeof setTimeout> } | null>(null)
   const [failedCommitIds, setFailedCommitIds] = useState<Set<number>>(new Set())
 
   // Ref tracks current pending-done task id for clearUndo (avoids stale closures)
@@ -132,6 +145,13 @@ export function useTasks(status: string, refreshTrigger?: number): UseTasksResul
             const taskId = (event.data as { task_id: number } | undefined)?.task_id
             if (taskId == null) return
             setFailedCommitIds((prev) => new Set(prev).add(taskId))
+            // Backend reverted the task to inbox — clear the pending-done UI state
+            // and refetch so the task reappears with its current DB status.
+            if (pendingUndoIdRef.current === taskId) {
+              pendingUndoIdRef.current = null
+              setPendingUndo(null)
+            }
+            void fetchTasks()
           }
 
           if (event.type === 'inbox_cleared' && status === 'inbox') {
@@ -208,22 +228,51 @@ export function useTasks(status: string, refreshTrigger?: number): UseTasksResul
       pendingUndoIdRef.current = id
       setPendingUndo({ id, title: task.title })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка')
+      setActionError(err instanceof Error ? err.message : 'Ошибка')
     } finally {
       setLoadingId(null)
     }
   }, [tasks])
 
-  const handleDismiss = useCallback(async (id: number) => {
-    // Optimistic: remove immediately
-    setTasks((prev) => prev.filter((t) => t.id !== id))
+  // Dismiss is deferred: the card disappears at once, the DELETE goes out after
+  // the undo window (or on tab switch / unmount). Undo = drop the timer, refetch.
+  // ponytail: one pending dismiss at a time — a second dismiss flushes the first.
+  const flushDismiss = useCallback(async () => {
+    const pending = dismissRef.current
+    if (!pending) return
+    clearTimeout(pending.timer)
+    dismissRef.current = null
+    setPendingDismiss(null)
     try {
-      await dismissTask(id)
+      await dismissTask(pending.id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка удаления')
+      setActionError(err instanceof Error ? err.message : 'Ошибка удаления')
       await fetchTasks()
     }
   }, [fetchTasks])
+
+  const handleDismiss = useCallback(async (id: number) => {
+    const task = tasks.find((t) => t.id === id)
+    if (!task) return
+    void flushDismiss()
+    setTasks((prev) => prev.filter((t) => t.id !== id))
+    const timer = setTimeout(() => void flushDismiss(), DISMISS_UNDO_MS)
+    dismissRef.current = { id, timer }
+    setPendingDismiss({ id, title: task.title })
+  }, [tasks, flushDismiss])
+
+  const handleUndoDismiss = useCallback(() => {
+    const pending = dismissRef.current
+    if (!pending) return
+    clearTimeout(pending.timer)
+    dismissRef.current = null
+    setPendingDismiss(null)
+    // Server never saw the dismiss — refetch restores the task in its place
+    void fetchTasks()
+  }, [fetchTasks])
+
+  // Tab switch or unmount: send the pending dismiss instead of losing it
+  useEffect(() => () => { void flushDismiss() }, [flushDismiss])
 
   const handleReorder = useCallback(async (ids: number[]) => {
     // Optimistic: порядок уже применён в TaskList через setTasks
@@ -242,7 +291,7 @@ export function useTasks(status: string, refreshTrigger?: number): UseTasksResul
     try {
       await snoozeTask(id, minutes)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка откладывания')
+      setActionError(err instanceof Error ? err.message : 'Ошибка откладывания')
       await fetchTasks()
     } finally {
       setLoadingId(null)
@@ -255,7 +304,7 @@ export function useTasks(status: string, refreshTrigger?: number): UseTasksResul
       await reopenTask(id)
       setTasks((prev) => prev.filter((t) => t.id !== id))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка')
+      setActionError(err instanceof Error ? err.message : 'Ошибка')
     } finally {
       setLoadingId(null)
     }
@@ -270,7 +319,7 @@ export function useTasks(status: string, refreshTrigger?: number): UseTasksResul
       await reopenTask(id)
       // Task remains in list with original inbox status — no refetch needed
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка отмены')
+      setActionError(err instanceof Error ? err.message : 'Ошибка отмены')
       await fetchTasks() // fallback on error
     } finally {
       setLoadingId(null)
@@ -284,7 +333,7 @@ export function useTasks(status: string, refreshTrigger?: number): UseTasksResul
     try {
       await changePriority(id, priority)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка смены приоритета')
+      setActionError(err instanceof Error ? err.message : 'Ошибка смены приоритета')
       // Rollback on error
       await fetchTasks()
     }
@@ -297,7 +346,7 @@ export function useTasks(status: string, refreshTrigger?: number): UseTasksResul
       // Refetch to get server-sorted order (pinned tasks move to top)
       await fetchTasks()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка закрепления')
+      setActionError(err instanceof Error ? err.message : 'Ошибка закрепления')
     } finally {
       setLoadingId(null)
     }
@@ -310,11 +359,13 @@ export function useTasks(status: string, refreshTrigger?: number): UseTasksResul
       const normalized = normalizeTask(updated)
       setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...normalized } : t)))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка отметки "в работе"')
+      setActionError(err instanceof Error ? err.message : 'Ошибка отметки "в работе"')
     } finally {
       setLoadingId(null)
     }
   }, [])
+
+  const clearActionError = useCallback(() => setActionError(null), [])
 
   const clearUndo = useCallback(() => {
     // Undo window expired — now actually remove the pending-done task from the list
@@ -330,14 +381,18 @@ export function useTasks(status: string, refreshTrigger?: number): UseTasksResul
     tasks,
     loading,
     error,
+    actionError,
     loadingId,
     pendingUndo,
+    pendingDismiss,
     failedCommitIds,
     handleDone,
     handleDismiss,
     handleSnooze,
     handleReopen,
     handleUndoDone,
+    handleUndoDismiss,
+    clearActionError,
     handlePriorityChange,
     handleReorder,
     handlePin,
