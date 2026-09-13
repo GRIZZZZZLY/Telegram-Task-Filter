@@ -171,6 +171,16 @@ async def auth_start(body: AuthStartRequest):
         _SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
         session_path = str(_SESSIONS_DIR / get_settings().tg_session_name)
 
+        # Re-auth replaces the old session. If it is PIN-encrypted, Telethon
+        # cannot open it ("file is not a database") — move it aside first.
+        # One backup, overwritten on every re-auth.
+        session_file = Path(session_path).with_suffix(".session")
+        if is_encrypted(session_file):
+            backup = session_file.with_suffix(".session.bak")
+            backup.unlink(missing_ok=True)
+            session_file.rename(backup)
+            logger.info("Encrypted session moved aside for re-auth: %s", backup.name)
+
         client = _make_client(session_path, effective_api_id, effective_api_hash)
         await client.connect()
 

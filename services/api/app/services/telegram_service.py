@@ -15,6 +15,7 @@ Session encryption:
     that temp file, and the temp file is deleted after connect.
     If no PIN is set, the session file is used as-is (backward-compatible).
 """
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
@@ -38,8 +39,24 @@ class TelegramService:
 
     # ── Lifecycle ──────────────────────────────────────────────────────────
 
+    _start_lock: asyncio.Lock | None = None
+
     @classmethod
     async def start(cls) -> None:
+        """Serialised entry point.
+
+        Two PIN unlocks arriving together (seen in dev: React StrictMode) must
+        not both decrypt the session and open two Telethon clients.
+        """
+        if cls._start_lock is None:
+            cls._start_lock = asyncio.Lock()
+        async with cls._start_lock:
+            if cls.is_available():
+                return
+            await cls._start_unlocked()
+
+    @classmethod
+    async def _start_unlocked(cls) -> None:
         """Connect to Telegram using an existing session file.
 
         Does nothing if:
@@ -287,8 +304,11 @@ class TelegramService:
         """
         client = self.__class__._client
         if not self.__class__.is_available():
-            logger.warning("[SKIP] mention_check — Telethon not connected")
-            return False
+            # Telethon not connected — commit_worker already guards against this
+            # case (defers the task). If we somehow reach here anyway, allow the
+            # commit rather than silently reverting the user's Done action.
+            logger.warning("[SKIP] mention_check — Telethon not connected (allowing)")
+            return True
 
         handles_lower = [h.strip().lower() for h in mention_handles if h.strip()]
         if not handles_lower:

@@ -81,6 +81,13 @@ async def _commit_task(db, task, settings, manager) -> None:
     from ..models import Event, EventType, TaskStatus
     from ..services.telegram_service import TelegramService
 
+    # If Telethon is not yet connected (e.g. reconnecting after startup), defer
+    # this task to the next tick (~1 s later) instead of reverting it to inbox.
+    # This avoids silently discarding a valid Done action on transient disconnects.
+    if not TelegramService.is_available():
+        logger.info("Commit worker: Telethon not ready, deferring task %d", task.id)
+        return
+
     # Determine what reply and reaction to send:
     #   - task.custom_reply set   → always send it, ignoring done_send_reply flag
     #   - task.custom_reply empty → honour done_send_reply + done_reply_text from settings
