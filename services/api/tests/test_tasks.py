@@ -204,6 +204,14 @@ class TestMarkDone:
         assert body["status"] == "done"
         assert body["id"] == task.id
 
+    def test_custom_reply_is_stored(self, client, db_session):
+        """The body is optional, but when sent its text must reach the task."""
+        task = seed_task(db_session)
+        r = client.post(f"/tasks/{task.id}/done", json={"custom_reply": "сделал"})
+        assert r.status_code == 200
+        db_session.refresh(task)
+        assert task.custom_reply == "сделал"
+
     def test_committed_at_is_set(self, client, db_session):
         task = seed_task(db_session)
         client.post(f"/tasks/{task.id}/done")
