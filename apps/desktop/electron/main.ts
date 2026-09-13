@@ -599,6 +599,10 @@ function createWindow(): void {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Already the default since Electron 20 (measured: process.sandboxed is
+      // true without it). Stated explicitly so that turning on nodeIntegration
+      // later fails loudly instead of silently dropping the sandbox.
+      sandbox: true,
     },
   })
 
@@ -797,7 +801,28 @@ ipcMain.on('app:notify', (_event, { title, body }: { title: string; body: string
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
+// Only one copy may run: a second one would spawn a second backend, fight over
+// port 8787 and the SQLite file, and duplicate every Telegram reaction. The app
+// hides to tray rather than closing, so launching it again is the normal way a
+// user asks for the window back — bring the running one forward instead.
+const isPrimaryInstance = app.requestSingleInstanceLock()
+
+if (!isPrimaryInstance) {
+  console.log('[App] Another instance is running — showing it and exiting')
+  app.quit()
+}
+
+app.on('second-instance', () => {
+  if (!win) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+})
+
 app.whenReady().then(async () => {
+  // A losing second instance still reaches whenReady before quit() completes.
+  if (!isPrimaryInstance) return
+
   // 0. Set Windows App User Model ID — required for correct taskbar icon grouping
   //    and association between the exe icon and the running window.
   app.setAppUserModelId('com.tgfocusfilter.app')
