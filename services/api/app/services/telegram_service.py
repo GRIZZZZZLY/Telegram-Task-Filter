@@ -11,9 +11,14 @@ IMPORTANT — first-run authentication:
 
 Session encryption:
     If a PIN is set, the .session file is stored encrypted (AES-256-GCM).
-    On startup, it is decrypted to a temporary file, Telethon connects using
-    that temp file, and the temp file is deleted after connect.
+    On startup it is decrypted to a temporary file, read into an in-memory
+    StringSession, and the temp file is deleted immediately — Telethon never
+    holds the plaintext copy open, so it cannot outlive the call.
     If no PIN is set, the session file is used as-is (backward-compatible).
+
+    In-memory means session updates (entity cache, update state) are not
+    persisted. That was already true of the previous temp-file approach: the
+    encrypted file on disk was never written back after authentication.
 """
 import asyncio
 import logging
@@ -35,7 +40,6 @@ class TelegramService:
     """
 
     _client = None  # telethon.TelegramClient | None
-    _temp_session_path: Path | None = None
 
     # ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -63,8 +67,8 @@ class TelegramService:
           - TG_API_ID / TG_API_HASH are not set in .env
           - Session file does not exist (run auth_telegram.py first)
 
-        If a PIN is set, the session file is decrypted to a temporary file
-        before connecting. The temp file is deleted after Telethon connects.
+        If a PIN is set, the session is decrypted into memory before
+        connecting; see _load_session.
         """
         from ..config import get_settings
 
@@ -102,22 +106,20 @@ class TelegramService:
                 )
                 return
 
-        # Resolve the actual path Telethon will use (may be a temp decrypted copy)
-        telethon_session_path, temp_session_path = await cls._resolve_session_for_telethon(
-            session_path.with_suffix(".session")
-        )
+        session_file = session_path.with_suffix(".session")
+        cls._purge_stale_temp_sessions(session_file.parent)
 
-        if telethon_session_path is None:
-            # Encrypted session exists but app is still locked (PIN not verified yet).
-            # This is expected at startup before first unlock.
+        # Either a path string (plaintext session on disk) or an in-memory
+        # StringSession (decrypted from the encrypted file). None = stay locked.
+        session = cls._load_session(session_file)
+        if session is None:
             return
 
         try:
             from telethon import TelegramClient
 
             cls._client = TelegramClient(
-                # Pass path without .session suffix — Telethon appends it
-                str(telethon_session_path.with_suffix("")),
+                session,
                 int(settings.tg_api_id),
                 settings.tg_api_hash,
                 device_model="Desktop",
@@ -128,20 +130,6 @@ class TelegramService:
             )
             # connect() never prompts interactively — safe for server startup
             await cls._client.connect()
-
-            # Clean up temp decrypted file after connect.
-            # On Windows, the DB can stay locked while Telethon is running.
-            # In that case, defer deletion until stop().
-            if temp_session_path is not None:
-                try:
-                    temp_session_path.unlink(missing_ok=True)
-                    logger.debug("Temp decrypted session deleted: %s", temp_session_path.name)
-                except OSError as e:
-                    cls._temp_session_path = temp_session_path
-                    logger.warning(
-                        "Could not delete temp session file yet (will retry on stop): %s",
-                        e,
-                    )
 
             if not await cls._client.is_user_authorized():
                 logger.warning(
@@ -160,51 +148,73 @@ class TelegramService:
                 me.last_name or "",
             )
         except Exception as exc:
-            # Clean up temp file on error too
-            if temp_session_path is not None:
-                temp_session_path.unlink(missing_ok=True)
             logger.error("Telethon start failed: %s", exc)
             cls._client = None
 
+    @staticmethod
+    def _purge_stale_temp_sessions(sessions_dir: Path) -> None:
+        """Delete plaintext session copies left behind by earlier versions.
+
+        Before the in-memory switch, every start decrypted the session to a
+        file Telethon kept open, so deletion was deferred to stop() and never
+        happened on a hard exit. Copies accumulated indefinitely.
+        """
+        removed = 0
+        for stale in sessions_dir.glob("_tgff_dec_*"):
+            try:
+                stale.unlink()
+                removed += 1
+            except OSError:
+                pass  # still locked by another instance — a later start gets it
+        if removed:
+            logger.info("Removed %d leftover plaintext session copies", removed)
+
     @classmethod
-    async def _resolve_session_for_telethon(
-        cls, session_file: Path
-    ) -> tuple[Path | None, Path | None]:
-        """Return (path_for_telethon, temp_path_or_None).
+    def _load_session(cls, session_file: Path):
+        """Return what Telethon should open, or None to stay disconnected.
 
-        If PIN is set and session is encrypted:
-            - Decrypts to a temp file
-            - Returns (temp_path, temp_path) — caller must delete temp_path after use
-
-        If PIN is not set or session is not encrypted:
-            - Returns (session_file, None) — no cleanup needed
+        Plaintext session (no PIN): the path, so Telethon persists updates.
+        Encrypted session: decrypt to a temp file, read it into an in-memory
+        StringSession, delete the temp file at once. The plaintext key never
+        outlives this call.
         """
         from .pin_service import is_pin_set, get_current_pin
         from .session_crypto import decrypt_session, is_encrypted
 
-        if not is_pin_set():
-            return session_file, None
-
-        if not is_encrypted(session_file):
-            logger.debug("PIN is set but session is not encrypted — using as-is")
-            return session_file, None
+        if not is_pin_set() or not is_encrypted(session_file):
+            # Telethon appends .session itself
+            return str(session_file.with_suffix(""))
 
         pin = get_current_pin()
         if pin is None:
             # PIN is set but not yet verified (app just started, user hasn't unlocked yet).
-            # We cannot decrypt without the PIN — Telegram will be unavailable until unlock.
+            # We cannot decrypt without the PIN — Telegram connects after unlock.
             logger.warning(
                 "Session is encrypted but PIN not yet verified — "
                 "Telegram will connect after first PIN unlock."
             )
-            return None, None
+            return None
 
         try:
             temp_path = decrypt_session(session_file, pin)
-            return temp_path, temp_path
         except ValueError as exc:
             logger.error("Session decryption failed: %s", exc)
-            return session_file, None
+            return None
+
+        try:
+            from telethon.sessions import SQLiteSession, StringSession
+
+            on_disk = SQLiteSession(str(temp_path.with_suffix("")))
+            try:
+                if on_disk.auth_key is None:
+                    logger.warning("Decrypted session carries no auth key — not authorized")
+                    return None
+                return StringSession(StringSession.save(on_disk))
+            finally:
+                on_disk.close()
+        finally:
+            # Runs even when SQLiteSession raises: no plaintext copy is left.
+            temp_path.unlink(missing_ok=True)
 
     @classmethod
     async def stop(cls) -> None:
@@ -213,16 +223,6 @@ class TelegramService:
             await cls._client.disconnect()
             logger.info("Telethon disconnected")
         cls._client = None
-
-        # Best-effort cleanup for deferred temp decrypted session file.
-        if cls._temp_session_path is not None:
-            try:
-                cls._temp_session_path.unlink(missing_ok=True)
-                logger.debug("Deferred temp session deleted: %s", cls._temp_session_path.name)
-            except OSError as e:
-                logger.warning("Could not delete deferred temp session file: %s", e)
-            finally:
-                cls._temp_session_path = None
 
     @classmethod
     def get_client(cls):
