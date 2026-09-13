@@ -1,16 +1,42 @@
 """Tests for GET /stats endpoint."""
+import itertools
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy.orm import Session
 
 from app.models import Task, TaskPriority, TaskStatus
+from app.tz import MSK
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def _now_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _minutes_into_today() -> float:
+    """Minutes ago for a moment safely inside the current local day.
+
+    "10 minutes ago" is not always today: just after local midnight it lands
+    on yesterday and the period tests fail for reasons that have nothing to
+    do with the code under test. Half the elapsed day is always inside it.
+    """
+    now_local = datetime.now(MSK)
+    midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return max(1.0, (now_local - midnight).total_seconds() / 120)
+
+
+def _minutes_into_this_week() -> float:
+    """Same idea for the current local week, which starts Monday 00:00."""
+    now_local = datetime.now(MSK)
+    week_start = (now_local - timedelta(days=now_local.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return max(1.0, (now_local - week_start).total_seconds() / 120)
+
+
+_MESSAGE_IDS = itertools.count(1000)
 
 
 def seed(
@@ -38,7 +64,10 @@ def seed(
         priority=priority,
         chat_id=chat_id,
         thread_id=thread_id,
-        source_message_id=abs(hash(title + str(created_ago_minutes))),
+        # Own message per task: the tasks table forbids two tasks sharing
+        # one (chat_id, source_message_id). Hashing the title collided
+        # whenever two tasks were seeded with the same defaults.
+        source_message_id=next(_MESSAGE_IDS),
         sender_id=sender_id,
         sender_username=sender_username,
         created_at=created_at,
@@ -199,14 +228,14 @@ class TestStatsByDay:
 
 class TestStatsPeriodFiltering:
     def test_today_excludes_old_tasks(self, client, db_session):
-        seed(db_session, created_ago_minutes=10)          # today
+        seed(db_session, created_ago_minutes=_minutes_into_today())   # today
         seed(db_session, created_ago_minutes=60 * 25)     # yesterday
 
         r = client.get("/stats?period=today")
         assert r.json()["summary"]["total"] == 1
 
     def test_week_includes_this_week(self, client, db_session):
-        seed(db_session, created_ago_minutes=60)           # 1 hour ago → this week
+        seed(db_session, created_ago_minutes=_minutes_into_this_week())  # this week
         seed(db_session, created_ago_minutes=60 * 24 * 8)  # 8 days ago → last week
 
         r = client.get("/stats?period=week")
