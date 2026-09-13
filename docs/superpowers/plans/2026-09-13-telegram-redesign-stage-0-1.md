@@ -14,7 +14,8 @@
 
 - All work happens on branch `redesign/telegram`. The app must start after every task.
 - Do not modify `src/hooks/*`, `src/api/*`, `src/lib/date.ts`, `src/lib/text.ts`, `src/lib/sound.ts`, `src/lib/log-parser.ts`, `src/types/*`, or anything under `services/`. New files in `src/lib/` are allowed.
-- Working tree already contains uncommitted backend changes in `services/api/app/services/telegram_service.py` and a new file `services/api/tests/test_session_no_plaintext.py`. Never stage them. Stage only the files each task names.
+- **Another session is committing to this repository at the same time.** It has been working on the backend and on `apps/desktop/electron/main.ts`, and it leaves files modified in the working tree. Never run `git add -A` at the repository root and never stage a file a task does not name. Before starting, run `git log --oneline -5` and `git status --short` to see what it has done since this plan was written.
+- Line numbers quoted in this plan were verified against commit `4f53122`. If the other session has since edited `electron/main.ts`, locate the code by the surrounding text rather than by number.
 - Every colour comes from a `--tg-*` custom property. Never write a hex value or a Tailwind palette class such as `bg-indigo-500` in new code.
 - Minimum font size in the interface is 12 px. Telegram's base size is 13 px, dialogs use 14 px.
 - Animation durations come from `src/lib/tg-motion.ts`. Never write a duration literal in a component.
@@ -2337,7 +2338,7 @@ Check each item and note any failure before committing:
 
 ```bash
 cd D:/Telegram-Task-Filter
-git add -A apps/desktop/src
+git add apps/desktop/src/components/ui/WindowControls.tsx
 git commit -m "refactor: drop the floating window controls
 
 Replaced by the title strip. Ends stage 1: the shell is on the Telegram
