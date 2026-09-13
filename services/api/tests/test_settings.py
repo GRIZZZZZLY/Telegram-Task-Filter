@@ -4,6 +4,7 @@ DELETE /tasks/done, and POST /tasks/{id}/snooze endpoints.
 All tests run against in-memory SQLite — no disk artifacts.
 Settings tests patch get_settings / save_settings to avoid touching .env.
 """
+import itertools
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,14 +15,21 @@ from app.models import Task, TaskPriority, TaskStatus
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+_MESSAGE_IDS = itertools.count(1000)
+
+
 def seed_task(
     db: Session,
     title: str = "Test task",
     status: TaskStatus = TaskStatus.inbox,
     priority: TaskPriority = TaskPriority.medium,
     chat_id: str = "-100123",
-    source_message_id: int = 42,
+    source_message_id: int | None = None,
 ) -> Task:
+    # Each task gets its own Telegram message: the tasks table forbids
+    # two tasks sharing one (chat_id, source_message_id).
+    if source_message_id is None:
+        source_message_id = next(_MESSAGE_IDS)
     t = Task(
         title=title,
         status=status,

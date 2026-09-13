@@ -110,3 +110,59 @@ def _run_migrations() -> None:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN media_type VARCHAR(20)"))
             import logging
             logging.getLogger(__name__).info("Migration: added tasks.media_type")
+
+    _add_source_message_unique_index()
+
+
+def _add_source_message_unique_index() -> None:
+    """Add the unique index on (chat_id, source_message_id) to existing databases.
+
+    create_all() skips tables that already exist, indexes included, so an
+    upgraded database never gets it otherwise.
+
+    A database that already contains duplicates cannot take the index. Those
+    rows are left alone and the index is skipped: deleting a user's tasks to
+    satisfy a constraint is a worse outcome than running without it, and the
+    listener rejects duplicates on its own either way.
+    """
+    import logging
+
+    from sqlalchemy import text
+
+    logger = logging.getLogger(__name__)
+
+    with engine.begin() as conn:
+        already = conn.execute(
+            text(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE type='index' AND name='ix_tasks_chat_source_message'"
+            )
+        ).first()
+        if already:
+            return
+
+        duplicates = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM ("
+                "  SELECT 1 FROM tasks"
+                "  WHERE chat_id IS NOT NULL AND source_message_id IS NOT NULL"
+                "  GROUP BY chat_id, source_message_id HAVING COUNT(*) > 1"
+                ")"
+            )
+        ).scalar()
+
+        if duplicates:
+            logger.warning(
+                "Migration: %d duplicate (chat_id, source_message_id) group(s) in tasks — "
+                "unique index skipped, nothing deleted",
+                duplicates,
+            )
+            return
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX ix_tasks_chat_source_message "
+                "ON tasks (chat_id, source_message_id)"
+            )
+        )
+        logger.info("Migration: added unique index on tasks (chat_id, source_message_id)")

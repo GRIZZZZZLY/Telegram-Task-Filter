@@ -6,6 +6,7 @@
   4. Reaction settings — new fields present in GET /settings and PATCH /settings
   5. media_type field — stored and returned via GET /tasks
 """
+import itertools
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -44,14 +45,21 @@ def _make_video_attr():
     return cls()
 
 
+_MESSAGE_IDS = itertools.count(1000)
+
+
 def seed_task(
     db: Session,
     title: str = "Test",
     status: TaskStatus = TaskStatus.inbox,
     chat_id: str = "-100123",
-    source_message_id: int = 1,
+    source_message_id: int | None = None,
     media_type: str | None = None,
 ) -> Task:
+    # Each task gets its own Telegram message: the tasks table forbids
+    # two tasks sharing one (chat_id, source_message_id).
+    if source_message_id is None:
+        source_message_id = next(_MESSAGE_IDS)
     t = Task(
         title=title,
         status=status,

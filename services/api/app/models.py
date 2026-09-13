@@ -2,7 +2,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -49,6 +49,19 @@ class Task(Base):
     """A task extracted from a Telegram message."""
 
     __tablename__ = "tasks"
+
+    # One Telegram message may produce only one task. The listener checks this
+    # before inserting, but the check and the insert are not atomic: two
+    # messages handled concurrently can both pass it. SQLite treats NULLs as
+    # distinct, so tasks with no Telegram source are unaffected.
+    __table_args__ = (
+        Index(
+            "ix_tasks_chat_source_message",
+            "chat_id",
+            "source_message_id",
+            unique=True,
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(500), nullable=False)

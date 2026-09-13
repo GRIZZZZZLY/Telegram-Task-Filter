@@ -3,6 +3,7 @@
 Fixtures (db_session, client, reset_db) come from conftest.py.
 All tests run against in-memory SQLite — no disk artifacts.
 """
+import itertools
 import json
 
 from sqlalchemy.orm import Session
@@ -12,14 +13,21 @@ from app.models import Event, EventType, Task, TaskPriority, TaskStatus
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+_MESSAGE_IDS = itertools.count(1000)
+
+
 def seed_task(
     db: Session,
     title: str = "Test task",
     status: TaskStatus = TaskStatus.inbox,
     priority: TaskPriority = TaskPriority.medium,
     chat_id: str = "-100123",
-    source_message_id: int = 42,
+    source_message_id: int | None = None,
 ) -> Task:
+    # Each task gets its own Telegram message: the tasks table forbids
+    # two tasks sharing one (chat_id, source_message_id).
+    if source_message_id is None:
+        source_message_id = next(_MESSAGE_IDS)
     t = Task(
         title=title,
         status=status,

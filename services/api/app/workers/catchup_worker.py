@@ -15,6 +15,8 @@ import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 
+from sqlalchemy.exc import IntegrityError
+
 logger = logging.getLogger(__name__)
 
 
@@ -289,6 +291,14 @@ async def run_catchup(scan_hours: int | None = None) -> dict:
                         )
                         await manager.broadcast("task_created", _task_payload(task))
 
+                except IntegrityError:
+                    # The live listener created this task between our duplicate
+                    # check and this insert. Expected while catching up.
+                    db.rollback()
+                    stats["skipped_dup"] += 1
+                    logger.debug(
+                        "Catch-up: task already created by the listener | msg_id=%d", msg.id
+                    )
                 except Exception as exc:
                     logger.error("Catch-up: failed to persist task for msg_id=%d: %s", msg.id, exc)
                     db.rollback()

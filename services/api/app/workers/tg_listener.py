@@ -21,6 +21,8 @@ import logging
 import re
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
+
 from ..config import get_settings
 from ..database import SessionLocal
 from ..models import Task, TaskStatus
@@ -447,6 +449,15 @@ async def start_listener() -> None:
                 "✅ Task created | id=%d rule=%s priority=%s chat=%s text=%.60r",
                 task.id, result.matched_rule_id, task.priority.value, chat_id, title,
             )
+        except IntegrityError:
+            # The unique index caught what the check above raced past: another
+            # handler inserted this same message first. Not an error.
+            db.rollback()
+            logger.debug(
+                "MSG skipped — duplicate source_message_id=%d (lost insert race)",
+                effective_message_id,
+            )
+            return
         except Exception as exc:
             logger.error("Failed to persist task: %s", exc)
             db.rollback()
