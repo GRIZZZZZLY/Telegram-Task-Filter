@@ -15,7 +15,6 @@ const isElectron = typeof window !== 'undefined' && !!window.electronAPI
 export function TopBar({ onOpenSettings, onOpenStats }: Props) {
   const { theme, toggle } = useTheme()
   const [pinned, setPinned] = useState(true)
-  const [version, setVersion] = useState<string | null>(null)
 
   // Sync pin state from Electron on mount and listen for tray-menu changes
   useEffect(() => {
@@ -23,12 +22,6 @@ export function TopBar({ onOpenSettings, onOpenStats }: Props) {
     void window.electronAPI!.getPin().then(setPinned)
     const cleanup = window.electronAPI!.onPinChanged(setPinned)
     return cleanup
-  }, [])
-
-  // Fetch app version once on mount
-  useEffect(() => {
-    if (!isElectron) return
-    void window.electronAPI!.getVersion().then(setVersion)
   }, [])
 
   const handlePin = () => window.electronAPI?.togglePin()
@@ -39,11 +32,6 @@ export function TopBar({ onOpenSettings, onOpenStats }: Props) {
         <span className="select-none text-tg-box font-semibold text-tg-text-bold">
           Задачи
         </span>
-        {version && (
-          <span className="select-none text-tg-sm text-tg-text-sub">
-            v{version}
-          </span>
-        )}
       </div>
 
       <div className="flex flex-none items-center gap-0.5">

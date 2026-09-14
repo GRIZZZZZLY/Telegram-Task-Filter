@@ -2,7 +2,7 @@ import { Maximize2, ExternalLink, Pin, PinOff, Flag, Trash2, RotateCcw, MessageS
 import { TgPopupMenu } from '@/components/tg'
 import type { TgMenuItem } from '@/components/tg'
 import type { Task } from '@/types/task'
-import { buildTgLinks, nextPriority } from '@/lib/task-format'
+import { buildTgLinks, nextPriority, PRIORITY_LABEL } from '@/lib/task-format'
 
 interface Props {
   task: Task
@@ -16,13 +16,6 @@ interface Props {
   onReopen: (id: number) => void
   /** Opens the inline field that sends a custom reply with "done". */
   onCustomReply?: () => void
-}
-
-const PRIORITY_LABEL: Record<Task['priority'], string> = {
-  normal: 'Обычный',
-  high: 'Высокий',
-  medium: 'Средний',
-  low: 'Низкий',
 }
 
 /**

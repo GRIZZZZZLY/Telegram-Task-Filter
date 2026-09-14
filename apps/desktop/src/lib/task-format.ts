@@ -151,6 +151,14 @@ export const SNOOZE_OPTIONS = [
 /** Priority cycle order, as clicking the priority badge walked it. */
 export const PRIORITY_ORDER: TaskPriority[] = ['normal', 'high', 'medium', 'low']
 
+/** One Russian name per priority, shared by the row menu and the statistics. */
+export const PRIORITY_LABEL: Record<TaskPriority, string> = {
+  normal: 'Обычный',
+  high: 'Высокий',
+  medium: 'Средний',
+  low: 'Низкий',
+}
+
 export function nextPriority(current: TaskPriority): TaskPriority {
   const idx = PRIORITY_ORDER.indexOf(current)
   return PRIORITY_ORDER[(idx + 1) % PRIORITY_ORDER.length]

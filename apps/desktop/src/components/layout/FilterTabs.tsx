@@ -4,9 +4,9 @@ import type { TabId } from '@/types/task'
 export type { TabId }
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'inbox', label: 'Inbox' },
-  { id: 'done', label: 'Done' },
-  { id: 'snoozed', label: 'Snoozed' },
+  { id: 'inbox', label: 'Входящие' },
+  { id: 'done', label: 'Готово' },
+  { id: 'snoozed', label: 'Отложено' },
 ]
 
 interface Props {

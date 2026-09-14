@@ -46,7 +46,7 @@ export function FiltersSection({ settings, patch }: SectionProps) {
         />
       </TgSettingRow>
 
-      <TgSettingRow label="Высокий приоритет выше" hint="Сначала HIGH, потом MED, LOW, NORM">
+      <TgSettingRow label="Высокий приоритет выше" hint="Сначала высокий, потом средний, низкий, обычный">
         <TgToggle
           checked={settings.tasks_inbox_sort_by_priority}
           onChange={(v) => patch('tasks_inbox_sort_by_priority', v)}

@@ -5,12 +5,13 @@
  * по приоритету, чатам, веткам и отправителям.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, RefreshCw, Loader2, BarChart2 } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Loader2 } from 'lucide-react'
 import { getStats } from '@/api/stats'
 import type { StatsResponse, StatsPeriodKey, DayStat } from '@/api/stats'
 import { useChatNames } from '@/hooks/useChatNames'
 import { cn } from '@/lib/utils'
 import { formatMinutes, shortChatId } from '@/lib/stats-format'
+import { PRIORITY_LABEL } from '@/lib/task-format'
 import { TgIconButton, TgButton, TgSegmented, TgSection } from '@/components/tg'
 
 interface Props {
@@ -61,13 +62,13 @@ function HBar({
   const pct = max > 0 ? Math.max(2, (count / max) * 100) : 0
   return (
     <div className="flex items-center gap-2">
-      <span className="w-28 shrink-0 truncate text-tg-sm text-tg-text-sub" title={label}>
+      <span className="min-w-0 flex-[3] truncate text-tg-sm text-tg-text-sub" title={label}>
         {label}
       </span>
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-tg-bg-over">
+      <div className="h-1.5 flex-[2] overflow-hidden rounded-full bg-tg-bg-over">
         <div className={cn('h-full rounded-full transition-all', color)} style={{ width: `${pct}%` }} />
       </div>
-      <span className="w-6 shrink-0 text-right text-tg-sm tabular-nums text-tg-text">{count}</span>
+      <span className="w-7 shrink-0 text-right text-tg-sm tabular-nums text-tg-text">{count}</span>
     </div>
   )
 }
@@ -83,19 +84,19 @@ function DayChart({ days }: { days: DayStat[] }) {
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-end gap-0.5" style={{ height: 48 }}>
+      {/* Each column is a full-height flex box: without it the percentage
+          heights below resolve against nothing and the bars collapse. */}
+      <div className="flex items-end gap-1" style={{ height: 96 }}>
         {visible.map((d) => (
-          <div key={d.date} className="relative flex flex-1 flex-col items-center justify-end gap-0.5">
-            <div
-              className="w-full rounded-t-sm bg-tg-accent/50"
+          <div key={d.date} className="flex h-full flex-1 items-end justify-center gap-px" title={`${d.date}: создано ${d.created}, выполнено ${d.done}`}>
+            <span
+              className="w-1/2 rounded-t-sm bg-tg-accent/60"
               style={{ height: `${(d.created / maxVal) * 100}%`, minHeight: d.created > 0 ? 2 : 0 }}
             />
-            {d.done > 0 && (
-              <div
-                className="absolute bottom-0 w-1/2 rounded-t-sm bg-tg-good"
-                style={{ height: `${(d.done / maxVal) * 100}%`, minHeight: 2 }}
-              />
-            )}
+            <span
+              className="w-1/2 rounded-t-sm bg-tg-good"
+              style={{ height: `${(d.done / maxVal) * 100}%`, minHeight: d.done > 0 ? 2 : 0 }}
+            />
           </div>
         ))}
       </div>
@@ -108,13 +109,14 @@ function DayChart({ days }: { days: DayStat[] }) {
 
       <div className="flex items-center gap-3 text-tg-sm text-tg-text-sub">
         <span className="flex items-center gap-1">
-          <span className="inline-block h-2 w-3 rounded-tg-sm bg-tg-accent/50" />
+          <span className="inline-block h-2 w-3 rounded-tg-sm bg-tg-accent/60" />
           Создано
         </span>
         <span className="flex items-center gap-1">
           <span className="inline-block h-2 w-3 rounded-tg-sm bg-tg-good" />
           Выполнено
         </span>
+        <span className="ml-auto tabular-nums">максимум за день: {maxVal}</span>
       </div>
     </div>
   )
@@ -166,7 +168,6 @@ export function StatsScreen({ onClose }: Props) {
         <TgIconButton label="Назад" onClick={onClose}>
           <ArrowLeft className="h-4 w-4" />
         </TgIconButton>
-        <BarChart2 className="h-4 w-4 text-tg-text-sub" />
         <span className="text-tg-box font-semibold text-tg-text-bold">Статистика</span>
         <TgIconButton label="Обновить" onClick={load} disabled={loading} className="ml-auto">
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
@@ -228,7 +229,7 @@ export function StatsScreen({ onClose }: Props) {
           <div className="grid grid-cols-2 gap-2 px-3 pt-3">
             <SummaryCard label="Всего задач" value={data.summary.total} />
             <SummaryCard label="Выполнено" value={data.summary.done} accent="text-tg-good" />
-            <SummaryCard label="В работе" value={data.summary.inbox} accent="text-tg-accent-text" />
+            <SummaryCard label="Во входящих" value={data.summary.inbox} accent="text-tg-accent-text" />
             <SummaryCard
               label="Среднее время"
               value={formatMinutes(data.summary.avg_completion_minutes)}
@@ -245,12 +246,18 @@ export function StatsScreen({ onClose }: Props) {
           <TgSection title="По приоритету">
             <div className="flex flex-col gap-1.5 px-[22px] pb-2">
               {([
-                { key: 'high', label: 'HIGH', color: 'bg-tg-danger' },
-                { key: 'medium', label: 'MED', color: 'bg-[rgb(var(--tg-peer-3))]' },
-                { key: 'normal', label: 'NORM', color: 'bg-tg-text-sub' },
-                { key: 'low', label: 'LOW', color: 'bg-tg-good' },
-              ] as const).map(({ key, label, color }) => (
-                <HBar key={key} label={label} count={data.by_priority[key]} max={maxPrio} color={color} />
+                { key: 'high', color: 'bg-tg-danger' },
+                { key: 'medium', color: 'bg-[rgb(var(--tg-peer-3))]' },
+                { key: 'normal', color: 'bg-tg-text-sub' },
+                { key: 'low', color: 'bg-[rgb(var(--tg-peer-5))]' },
+              ] as const).map(({ key, color }) => (
+                <HBar
+                  key={key}
+                  label={PRIORITY_LABEL[key]}
+                  count={data.by_priority[key]}
+                  max={maxPrio}
+                  color={color}
+                />
               ))}
             </div>
           </TgSection>
@@ -275,10 +282,12 @@ export function StatsScreen({ onClose }: Props) {
                 data.by_thread.map((t) => (
                   <HBar
                     key={`${t.chat_id}:${t.thread_id}`}
-                    label={`${chatLabel(t.chat_id)} › #${t.thread_id}`}
+                    // Thread first: two threads of one chat used to look identical
+                    // once the chat name ate the width.
+                    label={`тема #${t.thread_id} · ${chatLabel(t.chat_id)}`}
                     count={t.count}
                     max={maxThread}
-                    color="bg-[rgb(var(--tg-peer-5))]"
+                    color="bg-[rgb(var(--tg-peer-4))]"
                   />
                 ))
               )}
@@ -293,7 +302,7 @@ export function StatsScreen({ onClose }: Props) {
                 data.by_sender.map((s) => (
                   <HBar
                     key={s.sender_id}
-                    label={s.sender_username ?? `id:${s.sender_id}`}
+                    label={s.sender_username ?? `без имени · ${s.sender_id}`}
                     count={s.count}
                     max={maxSender}
                     color="bg-[rgb(var(--tg-peer-7))]"
