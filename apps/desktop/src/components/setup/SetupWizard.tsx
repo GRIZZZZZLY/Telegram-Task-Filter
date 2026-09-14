@@ -2,7 +2,7 @@ import { useState, FormEvent } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Loader2, ArrowRight, KeyRound, Lock } from 'lucide-react'
 import { OtpInput } from './OtpInput'
-import { AnimatedGradientBg } from '@/components/ui/AnimatedGradientBg'
+import { TgWindowFrame } from '@/components/tg'
 import { useSetup } from '@/hooks/useSetup'
 
 const variants = {
@@ -183,16 +183,16 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
 
   if (step === 'loading') {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
+      <TgWindowFrame>
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-tg-text-sub" />
+        </div>
+      </TgWindowFrame>
     )
   }
 
   return (
-    <div className="relative flex h-screen flex-col items-center justify-center">
-      <AnimatedGradientBg />
-
+    <TgWindowFrame className="items-center justify-center">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -252,6 +252,6 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
           </AnimatePresence>
         </div>
       </motion.div>
-    </div>
+    </TgWindowFrame>
   )
 }

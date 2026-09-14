@@ -9,8 +9,7 @@
  *  - Also used for first-time PIN setup (mode="setup")
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AnimatedGradientBg } from '@/components/ui/AnimatedGradientBg'
-import { WindowControls } from '@/components/ui/WindowControls'
+import { TgWindowFrame } from '@/components/tg'
 import { Delete, Lock, ShieldCheck } from 'lucide-react'
 import { verifyPin, setPin as apiSetPin } from '@/api/pin'
 import { cn } from '@/lib/utils'
@@ -174,20 +173,7 @@ export function PinScreen({ mode, onUnlocked, onSkipSetup }: Props) {
     : 'Для доступа к приложению'
 
   return (
-    <div className="relative flex h-screen flex-col items-center justify-center overflow-hidden">
-      <AnimatedGradientBg />
-      {/* Drag strip */}
-      <div
-        className="absolute inset-x-0 top-0 h-11"
-        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-      >
-        <div
-          className="absolute right-0 top-0 h-full w-[120px]"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        />
-      </div>
-      <WindowControls />
-
+    <TgWindowFrame className="items-center justify-center">
       <div className="relative z-10 flex flex-col items-center gap-6 px-8">
         {/* Icon */}
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
@@ -277,6 +263,6 @@ export function PinScreen({ mode, onUnlocked, onSkipSetup }: Props) {
           80% { transform: translateX(6px); }
         }
       `}</style>
-    </div>
+    </TgWindowFrame>
   )
 }

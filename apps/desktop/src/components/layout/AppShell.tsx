@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react'
-import { cn } from '@/lib/utils'
-import { AnimatedGradientBg } from '@/components/ui/AnimatedGradientBg'
-import { WindowControls } from '@/components/ui/WindowControls'
+import { TgWindowFrame, TgSlidePanel, TgButton } from '@/components/tg'
 import { TopBar } from './TopBar'
 import { FilterTabs } from './FilterTabs'
 import { TaskList } from '@/components/tasks/TaskList'
@@ -24,26 +22,6 @@ type AuthState =
   | { checked: false }
   | { checked: true; connected: boolean; hasCredentials: boolean; sessionExists: boolean }
 
-// ── Drag strip ────────────────────────────────────────────────────────────────
-// Used on full-screen loading/error/spinner screens that have no TopBar.
-// Creates a thin draggable strip at the top, with the right 120 px explicitly
-// marked no-drag so the fixed WindowControls buttons remain clickable.
-
-function DragStrip() {
-  return (
-    <div
-      className="absolute inset-x-0 top-0 h-11"
-      style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-    >
-      {/* Right 120 px reserved for WindowControls (3 × w-10) */}
-      <div
-        className="absolute right-0 top-0 h-full w-[120px]"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      />
-    </div>
-  )
-}
-
 // ── AppShell ──────────────────────────────────────────────────────────────────
 
 interface AppShellProps {
@@ -57,26 +35,14 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
   const [inboxCount, setInboxCount] = useState(0)
   const [showSettings, setShowSettings] = useState(false)
   const [showStats, setShowStats] = useState(false)
-
-  // Escape closes Settings/Stats. Not while typing in a field — a stray Escape
-  // in a settings input must not throw the whole panel away.
-  useEffect(() => {
-    if (!showSettings && !showStats) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      const tag = (e.target as HTMLElement | null)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-      setShowSettings(false)
-      setShowStats(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [showSettings, showStats])
   const [showUpdateModal, setShowUpdateModal] = useState(false)
   const [displayMode, setDisplayMode] = useState<'compact' | 'standard' | 'expanded'>('standard')
   const [authState, setAuthState] = useState<AuthState>({ checked: false })
   const [taskRefreshKey, setTaskRefreshKey] = useState(0)
   const tabCounts = useTabCounts()
+
+  // Escape is handled by TgSlidePanel itself, including the rule that a stray
+  // Escape inside a settings field must not throw the panel away.
 
   // Show update modal automatically when a new version is available
   useEffect(() => {
@@ -130,23 +96,19 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
 
   if (timedOut) {
     return (
-      <div className="relative flex h-screen flex-col items-center justify-center gap-3 overflow-hidden px-6 text-center">
-        <AnimatedGradientBg />
-        <DragStrip />
-        <WindowControls />
-        <p className="text-2xl">⚠️</p>
-        <p className="text-sm font-medium text-foreground">Бэкенд не отвечает</p>
-        <p className="text-[12px] text-muted-foreground leading-relaxed">
-          Python-сервер не запустился за {elapsed}с.<br />
-          Убедитесь, что venv создан и зависимости установлены.
-        </p>
-        <button
-          onClick={() => window.location.reload()}
-          className="mt-1 rounded-lg border border-border/50 px-4 py-1.5 text-[12px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
-        >
-          Перезапустить
-        </button>
-      </div>
+      <TgWindowFrame>
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="text-2xl">⚠️</p>
+          <p className="text-tg-box font-semibold text-tg-text-bold">Бэкенд не отвечает</p>
+          <p className="text-tg-sm leading-relaxed text-tg-text-sub">
+            Python-сервер не запустился за {elapsed}с.<br />
+            Убедитесь, что venv создан и зависимости установлены.
+          </p>
+          <TgButton variant="light" onClick={() => window.location.reload()}>
+            Перезапустить
+          </TgButton>
+        </div>
+      </TgWindowFrame>
     )
   }
 
@@ -154,29 +116,28 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
 
   if (!ready) {
     return (
-      <div className="relative flex h-screen flex-col items-center justify-center gap-4 overflow-hidden">
-        <AnimatedGradientBg />
-        <DragStrip />
-        <WindowControls />
-        <div className="flex gap-2">
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="h-2 w-2 rounded-full bg-indigo-500"
-              style={{ animation: `bounce 1.2s ${i * 0.2}s infinite ease-in-out` }}
-            />
-          ))}
+      <TgWindowFrame>
+        <div className="flex flex-1 flex-col items-center justify-center gap-4">
+          <div className="flex gap-2">
+            {[0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className="h-2 w-2 rounded-full bg-tg-accent"
+                style={{ animation: `bounce 1.2s ${i * 0.2}s infinite ease-in-out` }}
+              />
+            ))}
+          </div>
+          <p className="text-tg-base text-tg-text-sub">
+            {elapsed < 2 ? 'Запуск...' : `Подключение${elapsed > 4 ? ` (${elapsed}с)` : '...'}`}
+          </p>
+          <style>{`
+            @keyframes bounce {
+              0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+              40%            { transform: scale(1);   opacity: 1;   }
+            }
+          `}</style>
         </div>
-        <p className="text-[13px] text-muted-foreground">
-          {elapsed < 2 ? 'Запуск...' : `Подключение${elapsed > 4 ? ` (${elapsed}с)` : '...'}`}
-        </p>
-        <style>{`
-          @keyframes bounce {
-            0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-            40%            { transform: scale(1);   opacity: 1;   }
-          }
-        `}</style>
-      </div>
+      </TgWindowFrame>
     )
   }
 
@@ -184,13 +145,12 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
 
   if (!authState.checked) {
     return (
-      <div className="relative flex h-screen flex-col items-center justify-center gap-4 overflow-hidden">
-        <AnimatedGradientBg />
-        <DragStrip />
-        <WindowControls />
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
-        <p className="text-[12px] text-muted-foreground">Проверка авторизации...</p>
-      </div>
+      <TgWindowFrame>
+        <div className="flex flex-1 flex-col items-center justify-center gap-4">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-tg-accent border-t-transparent" />
+          <p className="text-tg-sm text-tg-text-sub">Проверка авторизации...</p>
+        </div>
+      </TgWindowFrame>
     )
   }
 
@@ -223,31 +183,20 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
       })
 
     return (
-      <div className="relative flex h-screen flex-col items-center justify-center gap-3 overflow-hidden px-6 text-center">
-        <AnimatedGradientBg />
-        <DragStrip />
-        <WindowControls />
-        <p className="text-2xl">⚡</p>
-        <p className="text-sm font-medium text-foreground">Telegram не подключился</p>
-        <p className="text-[12px] text-muted-foreground leading-relaxed">
-          Сессия найдена, но сервис не запустился.<br />
-          Проверьте интернет-соединение и попробуйте ещё раз.
-        </p>
-        <div className="flex gap-2 pt-1">
-          <button
-            onClick={retry}
-            className="rounded-lg bg-indigo-500 px-4 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-indigo-600"
-          >
-            Повторить
-          </button>
-          <button
-            onClick={reauth}
-            className="rounded-lg border border-border/50 px-4 py-1.5 text-[12px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
-          >
-            Войти заново
-          </button>
+      <TgWindowFrame>
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="text-2xl">⚡</p>
+          <p className="text-tg-box font-semibold text-tg-text-bold">Telegram не подключился</p>
+          <p className="text-tg-sm leading-relaxed text-tg-text-sub">
+            Сессия найдена, но сервис не запустился.<br />
+            Проверьте интернет-соединение и попробуйте ещё раз.
+          </p>
+          <div className="flex gap-2 pt-1">
+            <TgButton onClick={retry}>Повторить</TgButton>
+            <TgButton variant="light" onClick={reauth}>Войти заново</TgButton>
+          </div>
         </div>
-      </div>
+      </TgWindowFrame>
     )
   }
 
@@ -256,21 +205,8 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
 
   if (authState.checked && !authState.connected) {
     return (
-      <div className="relative flex h-screen flex-col overflow-hidden">
-        <AnimatedGradientBg />
-        <WindowControls />
-        {/* Drag handle: left part draggable, right 120 px reserved for WindowControls */}
-        <div
-          className="flex h-11 flex-shrink-0"
-          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-        >
-          <div className="flex-1" />
-          <div
-            className="w-[120px]"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          />
-        </div>
-        <div className="relative z-10 flex flex-1 flex-col overflow-hidden">
+      <TgWindowFrame>
+        <div className="flex flex-1 flex-col overflow-hidden">
           <TelegramAuthScreen
             hasCredentials={authState.hasCredentials}
             onConnected={() =>
@@ -278,61 +214,50 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
             }
           />
         </div>
-      </div>
+      </TgWindowFrame>
     )
   }
 
   // ── Main UI ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden">
-      <AnimatedGradientBg />
-      <WindowControls />
-
+    <TgWindowFrame>
       {/* Update modal — shown automatically when a new version is detected */}
       {showUpdateModal && (
         <UpdateModal onDismiss={() => setShowUpdateModal(false)} />
       )}
 
-      {/* Settings — монтируется поверх основного UI, но не размонтирует его */}
-      {showSettings && (
+      {/* Settings and stats slide in over the list. The list stays mounted so
+          the WebSocket and the notification sound keep working; its keyboard
+          shortcuts are switched off through overlayOpen. */}
+      <TgSlidePanel open={showSettings} onClose={() => setShowSettings(false)}>
         <SettingsScreen
           onClose={() => setShowSettings(false)}
           pinSet={pinSet}
           onPinChanged={onPinChanged}
           onSaved={() => setTaskRefreshKey((k) => k + 1)}
         />
-      )}
+      </TgSlidePanel>
 
-      {/* Stats — полноэкранный оверлей статистики */}
-      {showStats && (
+      <TgSlidePanel open={showStats} onClose={() => setShowStats(false)}>
         <StatsScreen onClose={() => setShowStats(false)} />
-      )}
+      </TgSlidePanel>
 
-      {/* Main UI — скрывается через CSS когда открыты настройки или статистика,
-          но остаётся смонтированным чтобы WebSocket и звук работали */}
-      <div className={cn('flex flex-1 flex-col overflow-hidden', (showSettings || showStats) && 'hidden')}>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <TopBar
           inboxCount={inboxCount}
           onOpenSettings={() => setShowSettings(true)}
           onOpenStats={() => setShowStats(true)}
         />
 
-        {/* Tabs */}
-        <div className="flex items-center justify-center border-b border-border/30 px-2 py-2 backdrop-blur-sm">
-          <div className="w-full max-w-full overflow-x-auto">
-            <div className="mx-auto w-max">
-              <FilterTabs
-                active={tab}
-                onChange={setTab}
-                counts={{ inbox: inboxCount, done: tabCounts.done, snoozed: tabCounts.snoozed }}
-              />
-            </div>
-          </div>
-        </div>
+        <FilterTabs
+          active={tab}
+          onChange={setTab}
+          counts={{ inbox: inboxCount, done: tabCounts.done, snoozed: tabCounts.snoozed }}
+        />
 
         {/* Content */}
-        <main className="flex flex-1 flex-col overflow-y-auto p-3">
+        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
           <TaskList
             tab={tab}
             displayMode={displayMode}
@@ -342,6 +267,6 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
           />
         </main>
       </div>
-    </div>
+    </TgWindowFrame>
   )
 }

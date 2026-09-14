@@ -435,17 +435,8 @@ export function SettingsScreen({ onClose, pinSet, onPinChanged, onSaved }: Props
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div
-        className="relative flex h-11 flex-shrink-0 items-center gap-2 border-b border-border/50 bg-background/60 pl-3 pr-[120px] backdrop-blur-md"
-        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-      >
-        {/* no-drag cutout for WindowControls zone (right 120px) — same pattern as TopBar */}
-        <div
-          className="absolute right-0 top-0 h-full w-[120px]"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        />
-
-        <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+      <div className="relative flex h-11 flex-shrink-0 items-center gap-2 border-b border-tg-divider bg-tg-bg pl-3 pr-2">
+        <div>
           <button
             onClick={onClose}
             className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
