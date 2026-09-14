@@ -21,6 +21,8 @@ export function SecuritySection({ pinSet, onPinChanged }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [lockMinutes, setLockMinutes] = useState(() => getLockTimeoutMinutes())
+  /** Three password fields stay folded until the PIN is actually being changed. */
+  const [formOpen, setFormOpen] = useState(false)
 
   const clearMessages = () => {
     setError(null)
@@ -40,6 +42,7 @@ export function SecuritySection({ pinSet, onPinChanged }: Props) {
       setCurrent('')
       setNext('')
       setConfirm('')
+      setFormOpen(false)
       onPinChanged?.()
     } catch {
       setError(pinSet ? 'Неверный текущий PIN' : 'Ошибка установки PIN')
@@ -60,8 +63,16 @@ export function SecuritySection({ pinSet, onPinChanged }: Props) {
         >
           {pinSet ? 'Установлен' : 'Не установлен'}
         </span>
+        <TgButton
+          variant="light"
+          onClick={() => { setFormOpen((v) => !v); clearMessages() }}
+          className="h-7 px-2.5 text-tg-sm"
+        >
+          {pinSet ? 'Сменить' : 'Установить'}
+        </TgButton>
       </TgSettingRow>
 
+      {formOpen && (
       <div className="mx-[22px] mb-2 flex flex-col gap-2 rounded-tg-btn bg-tg-bg-over p-3">
         <p className="text-tg-box font-semibold text-tg-text-bold">
           {pinSet ? 'Сменить PIN' : 'Установить PIN'}
@@ -105,8 +116,10 @@ export function SecuritySection({ pinSet, onPinChanged }: Props) {
         </TgButton>
 
         {error && <p className="text-tg-sm text-tg-danger">{error}</p>}
-        {success && <p className="text-tg-sm text-tg-good">{success}</p>}
       </div>
+      )}
+
+      {success && <p className="px-[22px] pb-2 text-tg-sm text-tg-good">{success}</p>}
 
       <TgSettingRow
         label="Автоблокировка"

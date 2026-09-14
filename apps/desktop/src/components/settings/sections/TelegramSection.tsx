@@ -6,6 +6,8 @@ import { ThreadSelector } from '../ThreadSelector'
 export interface SectionProps {
   settings: AppSettings
   patch: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void
+  /** Shows a toast at the bottom of the settings screen. */
+  notify?: (text: string) => void
 }
 
 export function TelegramSection({ settings, patch }: SectionProps) {
@@ -33,9 +35,6 @@ export function TelegramSection({ settings, patch }: SectionProps) {
         />
       </div>
 
-      <p className="mx-[22px] mb-3 rounded-tg-btn bg-tg-accent/10 px-2.5 py-1.5 text-tg-sm text-tg-accent-text">
-        ⚡ После изменения чатов нажмите <strong>Применить</strong> — это перезапустит слушатель.
-      </p>
     </TgSection>
   )
 }

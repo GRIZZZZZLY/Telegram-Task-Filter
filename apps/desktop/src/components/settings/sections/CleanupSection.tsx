@@ -5,7 +5,7 @@ import { clearDoneTasks, clearInboxTasks } from '@/api/tasks'
 import { nativeConfirm } from '@/lib/dialog'
 import type { SectionProps } from './TelegramSection'
 
-export function CleanupSection({ settings, patch }: SectionProps) {
+export function CleanupSection({ settings, patch, notify }: SectionProps) {
   const [clearingDone, setClearingDone] = useState(false)
   const [clearingInbox, setClearingInbox] = useState(false)
 
@@ -15,13 +15,13 @@ export function CleanupSection({ settings, patch }: SectionProps) {
     setClearingDone(true)
     try {
       const res = await clearDoneTasks()
-      alert(`Удалено ${res.deleted} задач`)
+      notify?.(`Удалено ${res.deleted} задач`)
     } catch {
-      alert('Ошибка очистки')
+      notify?.('Не получилось очистить выполненные')
     } finally {
       setClearingDone(false)
     }
-  }, [])
+  }, [notify])
 
   const handleClearInbox = useCallback(async () => {
     const ok = await nativeConfirm(
@@ -31,13 +31,13 @@ export function CleanupSection({ settings, patch }: SectionProps) {
     setClearingInbox(true)
     try {
       const res = await clearInboxTasks()
-      alert(`Удалено ${res.deleted} задач из inbox`)
+      notify?.(`Удалено ${res.deleted} задач из входящих`)
     } catch {
-      alert('Ошибка очистки inbox')
+      notify?.('Не получилось очистить входящие')
     } finally {
       setClearingInbox(false)
     }
-  }, [])
+  }, [notify])
 
   return (
     <TgSection title="Очистка">

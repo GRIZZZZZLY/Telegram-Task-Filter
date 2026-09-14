@@ -488,7 +488,7 @@ function isPortableBuild(): boolean {
 
 async function setupAutoUpdater(): Promise<void> {
   if (!app.isPackaged) {
-    setUpdaterState({ status: 'unsupported', message: 'Auto update disabled in dev mode' })
+    setUpdaterState({ status: 'unsupported', message: 'Автообновление выключено в режиме разработки' })
     return
   }
 

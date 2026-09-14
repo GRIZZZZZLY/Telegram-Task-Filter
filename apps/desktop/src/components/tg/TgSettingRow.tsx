@@ -18,7 +18,7 @@ export function TgSettingRow({ label, hint, onClick, children, className }: Prop
 
   const content = (
     <>
-      <span className="min-w-0 flex-1">
+      <span className="min-w-[55%] flex-1">
         <span className="block text-tg-box text-tg-text-bold">{label}</span>
         {hint && <span className="mt-0.5 block text-tg-sm text-tg-text-sub">{hint}</span>}
       </span>
@@ -28,7 +28,7 @@ export function TgSettingRow({ label, hint, onClick, children, className }: Prop
 
   if (!onClick) {
     return (
-      <div className={cn('flex items-center gap-3 px-[22px] pb-2 pt-2.5', className)}>
+      <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-1.5 px-[22px] pb-2 pt-2.5', className)}>
         {content}
       </div>
     )
@@ -40,7 +40,7 @@ export function TgSettingRow({ label, hint, onClick, children, className }: Prop
       onClick={onClick}
       {...ripple}
       className={cn(
-        'relative flex items-center gap-3 overflow-hidden px-[22px] pb-2 pt-2.5 text-left',
+        'relative flex flex-wrap items-center gap-x-3 gap-y-1.5 overflow-hidden px-[22px] pb-2 pt-2.5 text-left',
         'transition-colors duration-tg-universal hover:bg-tg-bg-over',
         '[--tg-ripple-color:rgb(var(--tg-bg-ripple))]',
         className,
