@@ -176,14 +176,14 @@ export function PinScreen({ mode, onUnlocked, onSkipSetup }: Props) {
     <TgWindowFrame className="items-center justify-center">
       <div className="relative z-10 flex flex-col items-center gap-6 px-8">
         {/* Icon */}
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-tg-accent/10 text-tg-accent-text">
           {mode === 'setup' ? <ShieldCheck size={32} /> : <Lock size={32} />}
         </div>
 
         {/* Title */}
         <div className="text-center">
-          <h1 className="text-lg font-semibold text-foreground">{title}</h1>
-          <p className="mt-1 text-[12px] text-muted-foreground">{subtitle}</p>
+          <h1 className="text-lg font-semibold text-tg-text-bold">{title}</h1>
+          <p className="mt-1 text-tg-sm text-tg-text-sub">{subtitle}</p>
         </div>
 
         {/* Dots */}
@@ -199,8 +199,8 @@ export function PinScreen({ mode, onUnlocked, onSkipSetup }: Props) {
               className={cn(
                 'h-3.5 w-3.5 rounded-full border-2 transition-all duration-150',
                 i < pin.length
-                  ? 'border-indigo-500 bg-indigo-500 scale-110'
-                  : 'border-muted-foreground/30 bg-transparent',
+                  ? 'border-tg-accent bg-tg-accent scale-110'
+                  : 'border-tg-checkbox-off bg-transparent',
               )}
             />
           ))}
@@ -209,11 +209,11 @@ export function PinScreen({ mode, onUnlocked, onSkipSetup }: Props) {
         {/* Error / lockout */}
         <div className="h-5 text-center">
           {lockSeconds > 0 ? (
-            <p className="text-[12px] text-red-400">
+            <p className="text-tg-sm text-tg-danger">
               Заблокировано на {lockSeconds}с
             </p>
           ) : error ? (
-            <p className="text-[12px] text-red-400">{error}</p>
+            <p className="text-tg-sm text-tg-danger">{error}</p>
           ) : null}
         </div>
 
@@ -229,11 +229,11 @@ export function PinScreen({ mode, onUnlocked, onSkipSetup }: Props) {
                 disabled={loading || lockSeconds > 0}
                 className={cn(
                   'flex h-14 w-14 items-center justify-center rounded-xl text-lg font-medium transition-all',
-                  'hover:bg-muted/50 active:scale-95',
+                  'hover:bg-tg-bg-over active:scale-95',
                   'disabled:opacity-30 disabled:cursor-not-allowed',
                   isDelete
-                    ? 'text-muted-foreground'
-                    : 'text-foreground',
+                    ? 'text-tg-text-sub'
+                    : 'text-tg-text',
                 )}
               >
                 {isDelete ? <Delete size={20} /> : key}
@@ -246,7 +246,7 @@ export function PinScreen({ mode, onUnlocked, onSkipSetup }: Props) {
         {mode === 'setup' && onSkipSetup && (
           <button
             onClick={onSkipSetup}
-            className="mt-2 text-[12px] text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+            className="mt-2 text-tg-sm text-tg-text-sub transition-colors hover:text-tg-text"
           >
             Пропустить (не рекомендуется)
           </button>
