@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Pin, PinOff, Settings, BarChart2 } from 'lucide-react'
-import { ThemeToggler } from '@/components/ui/ThemeToggler'
+import { Pin, PinOff, Settings, BarChart2, Sun, Moon } from 'lucide-react'
+import { TgIconButton } from '@/components/tg'
 import { useTheme } from '@/hooks/useTheme'
 
 interface Props {
@@ -34,67 +34,42 @@ export function TopBar({ onOpenSettings, onOpenStats }: Props) {
   const handlePin = () => window.electronAPI?.togglePin()
 
   return (
-    <header
-      className="relative flex h-11 items-center justify-between gap-2 border-b border-border/50 bg-background/60 pl-3 pr-[120px] backdrop-blur-md"
-      style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-    >
-      {/* no-drag cutout for WindowControls zone (right 120px) */}
-      <div
-        className="absolute right-0 top-0 h-full w-[120px]"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      />
-
-      {/* Left: title + version */}
+    <header className="flex h-11 flex-none items-center justify-between gap-2 border-b border-tg-divider bg-tg-bg px-2 pl-3">
       <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-        <span className="min-w-0 truncate text-sm font-semibold tracking-tight select-none">
-          TTF
+        <span className="select-none text-tg-box font-semibold text-tg-text-bold">
+          Задачи
         </span>
         {version && (
-          <span className="text-[11px] text-muted-foreground/60 font-normal select-none tracking-tight">
+          <span className="select-none text-tg-sm text-tg-text-sub">
             v{version}
           </span>
         )}
       </div>
 
-      {/* Right: app controls — stop drag propagation so buttons are clickable */}
-      <div
-        className="flex flex-shrink-0 items-center gap-1"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      >
-        <div className="max-[420px]:hidden">
-          <ThemeToggler theme={theme} onToggle={toggle} />
-        </div>
-
-        {/* Stats */}
-        <button
-          onClick={onOpenStats}
-          title="Статистика"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      <div className="flex flex-none items-center gap-0.5">
+        <TgIconButton
+          label={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+          onClick={toggle}
         >
-          <BarChart2 size={14} />
-        </button>
+          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+        </TgIconButton>
 
-        {/* Settings */}
-        <button
-          onClick={onOpenSettings}
-          title="Настройки"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <Settings size={14} />
-        </button>
+        <TgIconButton label="Статистика" onClick={onOpenStats}>
+          <BarChart2 size={16} />
+        </TgIconButton>
 
-        {/* Pin / always-on-top toggle */}
+        <TgIconButton label="Настройки" onClick={onOpenSettings}>
+          <Settings size={16} />
+        </TgIconButton>
+
         {isElectron && (
-          <button
+          <TgIconButton
+            label={pinned ? 'Открепить' : 'Закрепить поверх всех окон'}
             onClick={handlePin}
-            title={pinned ? 'Открепить' : 'Закрепить поверх всех окон'}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className={pinned ? 'text-tg-accent-text' : undefined}
           >
-            {pinned
-              ? <Pin size={14} className="text-indigo-400" />
-              : <PinOff size={14} />
-            }
-          </button>
+            {pinned ? <Pin size={16} /> : <PinOff size={16} />}
+          </TgIconButton>
         )}
       </div>
     </header>
