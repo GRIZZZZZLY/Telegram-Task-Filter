@@ -1,88 +1,77 @@
 /**
- * ThreadSelector — Two-accordion UI for selecting monitored groups and threads.
+ * ThreadSelector — выбор отслеживаемых групп и веток.
  *
- * Accordion 1 (Группы):
- *   - Search input for groups
- *   - Checkbox list of all available Telegram supergroups
- *   - Updates tg_monitored_chat_ids
+ * Две раскрывающиеся секции: «Группы» и «Ветки». Ветки показываются
+ * вкладками по выбранным группам, по три на страницу, и грузятся по
+ * требованию с кэшем.
  *
- * Accordion 2 (Ветки):
- *   - Tabs = selected groups, paginated (3 per page)
- *   - Search input for threads within the active tab
- *   - Button group: [Все] [Сброс] presets for the active tab
- *   - Checkbox list of forum threads for the active tab
- *   - Updates tg_monitored_thread_ids
- *
- * Removing a group from Accordion 1 automatically purges its thread IDs
- * from tg_monitored_thread_ids (using the local threads cache).
+ * Снятие галочки с группы убирает и все её ветки.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight, Loader2, RefreshCw } from 'lucide-react'
 import { getTgChats, getTgThreads } from '@/api/settings'
 import type { TgChat, TgThread } from '@/types/settings'
 import { cn } from '@/lib/utils'
-
-// ── Constants ─────────────────────────────────────────────────────────────────
+import { TgSearchField, TgIconButton } from '@/components/tg'
+import {
+  normalizeCsvToken,
+  parseCsvIds,
+  deserializeThreadSelection,
+  serializeThreadSelection,
+  countSelectedThreads,
+  removeChatFromSelection,
+  toggleThreadInSelection,
+} from '@/lib/thread-selection'
 
 const TABS_PER_PAGE = 3
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function normalizeCsvToken(v: string): string {
-  return v.trim().replace(/^['\"]+|['\"]+$/g, '')
+interface Props {
+  /** Current value of tg_monitored_chat_ids (CSV string) */
+  monitoredChatIds: string
+  /** Current value of tg_monitored_thread_ids (CSV string) */
+  monitoredThreadIds: string
+  onChatIdsChange: (value: string) => void
+  onThreadIdsChange: (value: string) => void
 }
 
-function parseCsvIds(value: string): string[] {
-  return value.split(',').map(normalizeCsvToken).filter(Boolean)
-}
-
-/** Deserialize "chatId:threadId" CSV → Map<chatId, Set<threadId>> */
-function deserializeThreadSelection(csv: string): Map<string, Set<string>> {
-  const map = new Map<string, Set<string>>()
-  for (const raw of csv.split(',')) {
-    const token = raw.trim()
-    if (!token) continue
-    const colonIdx = token.lastIndexOf(':')
-    if (colonIdx <= 0) continue // old flat format or malformed — ignore
-    const chatId = token.slice(0, colonIdx)
-    const threadId = token.slice(colonIdx + 1)
-    if (!chatId || !threadId) continue
-    if (!map.has(chatId)) map.set(chatId, new Set())
-    map.get(chatId)!.add(threadId)
-  }
-  return map
-}
-
-/** Serialize Map<chatId, Set<threadId>> → "chatId:threadId" CSV */
-function serializeThreadSelection(map: Map<string, Set<string>>): string {
-  const pairs: string[] = []
-  for (const [chatId, threadIds] of map) {
-    for (const threadId of threadIds) {
-      pairs.push(`${chatId}:${threadId}`)
-    }
-  }
-  return pairs.join(',')
-}
-
-// ── Checkbox item style helpers ───────────────────────────────────────────────
-
-function itemCls(selected: boolean) {
-  return cn(
-    'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] transition-colors',
-    selected
-      ? 'bg-indigo-500/20 text-indigo-300'
-      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+/** One line with a tick, as Telegram lists selectable chats. */
+function PickRow({
+  selected,
+  label,
+  trailing,
+  onToggle,
+}: {
+  selected: boolean
+  label: string
+  trailing?: string
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={cn(
+        'flex w-full items-center gap-2 rounded-tg-btn px-2 py-1.5 text-left text-tg-base',
+        'transition-colors duration-tg-universal',
+        selected ? 'text-tg-text' : 'text-tg-text-sub hover:bg-tg-bg-over',
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'grid h-4 w-4 flex-none place-items-center rounded-tg-sm border text-[10px] leading-none',
+          selected
+            ? 'border-tg-accent bg-tg-accent text-tg-on-accent'
+            : 'border-tg-checkbox-off',
+        )}
+      >
+        {selected ? '✓' : ''}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {trailing && <span className="flex-none text-tg-sm text-tg-text-sub">{trailing}</span>}
+    </button>
   )
 }
-
-function checkboxCls(selected: boolean) {
-  return cn(
-    'h-4 w-4 flex-shrink-0 rounded border text-center text-[10px] leading-[14px]',
-    selected ? 'border-indigo-400 bg-indigo-500 text-white' : 'border-border',
-  )
-}
-
-// ── AccordionHeader ───────────────────────────────────────────────────────────
 
 function AccordionHeader({
   label,
@@ -91,24 +80,23 @@ function AccordionHeader({
   onToggle,
 }: {
   label: string
-  badge: string | null
+  badge: string
   open: boolean
   onToggle: () => void
 }) {
   return (
     <button
+      type="button"
       onClick={onToggle}
-      className="flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-accent/30"
+      className="flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors duration-tg-universal hover:bg-tg-bg-over"
     >
-      <div className="flex items-center gap-2">
-        <span className="text-[12px] font-medium text-foreground">{label}</span>
-        {badge !== null && (
-          <span className="text-[11px] text-muted-foreground">{badge}</span>
-        )}
-      </div>
+      <span className="flex items-center gap-2">
+        <span className="text-tg-base font-semibold text-tg-text-bold">{label}</span>
+        <span className="text-tg-sm text-tg-text-sub">{badge}</span>
+      </span>
       <ChevronDown
         className={cn(
-          'h-3.5 w-3.5 text-muted-foreground transition-transform duration-200',
+          'h-3.5 w-3.5 text-tg-text-sub transition-transform duration-tg-menu',
           open && 'rotate-180',
         )}
       />
@@ -116,60 +104,28 @@ function AccordionHeader({
   )
 }
 
-// ── Props ─────────────────────────────────────────────────────────────────────
-
-interface Props {
-  /** Current value of tg_monitored_chat_ids (CSV string) */
-  monitoredChatIds: string
-  /** Current value of tg_monitored_thread_ids (CSV string) */
-  monitoredThreadIds: string
-  /** Called when the user changes group selection */
-  onChatIdsChange: (value: string) => void
-  /** Called when the user changes thread selection */
-  onThreadIdsChange: (value: string) => void
-}
-
-// ── Component ─────────────────────────────────────────────────────────────────
-
 export function ThreadSelector({
   monitoredChatIds,
   monitoredThreadIds,
   onChatIdsChange,
   onThreadIdsChange,
 }: Props) {
-  // ── Chat state ──
   const [allChats, setAllChats] = useState<TgChat[]>([])
   const [chatsLoading, setChatsLoading] = useState(false)
-
-  // ── Thread cache: chatId → TgThread[] (undefined = not yet loaded) ──
   const [threadsCache, setThreadsCache] = useState<Map<string, TgThread[]>>(new Map())
   const [threadLoadingFor, setThreadLoadingFor] = useState<string | null>(null)
-
-  // ── Accordion open state ──
   const [groupsOpen, setGroupsOpen] = useState(true)
   const [threadsOpen, setThreadsOpen] = useState(true)
-
-  // ── Tab navigation ──
   const [activeTab, setActiveTab] = useState<string | null>(null)
   const [tabPage, setTabPage] = useState(0)
-
-  // ── Search state ──
   const [groupSearch, setGroupSearch] = useState('')
   const [threadSearch, setThreadSearch] = useState('')
 
-  // ── Derived values ────────────────────────────────────────────────────────
-
   const selectedChatIds = parseCsvIds(monitoredChatIds)
   const selectedChatIdSet = new Set(selectedChatIds)
-
-  // Thread selection: Map<chatId, Set<threadId>> — new "chatId:threadId" format
   const threadSelectionMap = deserializeThreadSelection(monitoredThreadIds)
-  const totalSelectedThreads = Array.from(threadSelectionMap.values()).reduce(
-    (acc, set) => acc + set.size,
-    0,
-  )
+  const totalSelectedThreads = countSelectedThreads(threadSelectionMap)
 
-  // Selected chats as ordered array (preserving CSV order); fallback to raw ID if chat not in list
   const selectedChats: TgChat[] = selectedChatIds.map(
     (id) => allChats.find((c) => normalizeCsvToken(c.id) === id) ?? { id, name: id, type: 'unknown' as const },
   )
@@ -177,40 +133,32 @@ export function ThreadSelector({
   const totalPages = Math.ceil(selectedChats.length / TABS_PER_PAGE)
   const visibleTabs = selectedChats.slice(tabPage * TABS_PER_PAGE, (tabPage + 1) * TABS_PER_PAGE)
 
-  // Effective active tab — corrected if the selected group was removed
   const effectiveTab: string | null =
     activeTab !== null && selectedChatIds.includes(activeTab) ? activeTab : (selectedChatIds[0] ?? null)
 
-  // Thread IDs selected for the currently active tab
   const selectedThreadIdsForTab: ReadonlySet<string> =
     effectiveTab !== null ? (threadSelectionMap.get(effectiveTab) ?? new Set<string>()) : new Set<string>()
 
-  // Threads for the active tab (null = not yet loaded)
   const activeThreads: TgThread[] | null =
     effectiveTab !== null ? (threadsCache.get(effectiveTab) ?? null) : null
 
-  // Threads filtered by search
   const filteredThreads: TgThread[] =
     activeThreads !== null
       ? activeThreads.filter((t) => {
-          const q = threadSearch.trim().toLowerCase()
-          return !q || t.name.toLowerCase().includes(q) || t.id.toLowerCase().includes(q)
+          const query = threadSearch.trim().toLowerCase()
+          return !query || t.name.toLowerCase().includes(query) || t.id.toLowerCase().includes(query)
         })
       : []
 
-  // Group list filtered by search
   const q = groupSearch.trim().toLowerCase()
   const filteredChats = q
     ? allChats.filter((c) => c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q))
     : allChats
 
-  // ── Load all chats on mount ───────────────────────────────────────────────
-
   const loadChats = useCallback(async () => {
     setChatsLoading(true)
     try {
-      const list = await getTgChats()
-      setAllChats(list)
+      setAllChats(await getTgChats())
     } catch {
       // keep empty — Telegram might not be connected yet
     } finally {
@@ -218,11 +166,7 @@ export function ThreadSelector({
     }
   }, [])
 
-  useEffect(() => {
-    void loadChats()
-  }, [loadChats])
-
-  // ── Load threads for a chat ───────────────────────────────────────────────
+  useEffect(() => { void loadChats() }, [loadChats])
 
   const loadThreadsForChat = useCallback(async (chatId: string) => {
     setThreadLoadingFor(chatId)
@@ -236,7 +180,6 @@ export function ThreadSelector({
     }
   }, [])
 
-  // Auto-load threads when active tab changes and is not yet cached
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (effectiveTab !== null && !threadsCache.has(effectiveTab) && threadLoadingFor !== effectiveTab) {
@@ -244,7 +187,6 @@ export function ThreadSelector({
     }
   }, [effectiveTab, threadsCache]) // intentionally narrow deps to avoid re-entry loop
 
-  // Sync activeTab / tabPage when selected chats change
   useEffect(() => {
     if (selectedChatIds.length === 0) {
       setActiveTab(null)
@@ -256,71 +198,47 @@ export function ThreadSelector({
       setTabPage(0)
       return
     }
-    // Clamp page if it's now out of bounds
     const newTotal = Math.ceil(selectedChatIds.length / TABS_PER_PAGE)
     setTabPage((p) => Math.min(p, Math.max(0, newTotal - 1)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monitoredChatIds]) // depend on the string — selectedChatIds would create a new array every render
+  }, [monitoredChatIds])
 
-  // Clear thread search when switching tabs
-  useEffect(() => {
-    setThreadSearch('')
-  }, [effectiveTab])
-
-  // ── Group handlers ────────────────────────────────────────────────────────
+  useEffect(() => { setThreadSearch('') }, [effectiveTab])
 
   const toggleGroup = (chatId: string) => {
     const id = normalizeCsvToken(chatId)
     if (selectedChatIdSet.has(id)) {
-      // Deselecting: also purge this chat's threads from the selection map
       onChatIdsChange(selectedChatIds.filter((x) => x !== id).join(','))
       if (threadSelectionMap.has(id)) {
-        const newMap = new Map(threadSelectionMap)
-        newMap.delete(id)
-        onThreadIdsChange(serializeThreadSelection(newMap))
+        onThreadIdsChange(serializeThreadSelection(removeChatFromSelection(threadSelectionMap, id)))
       }
     } else {
       onChatIdsChange([...selectedChatIds, id].join(','))
     }
   }
 
-  // ── Thread handlers ───────────────────────────────────────────────────────
-
   const toggleThread = (threadId: string) => {
     if (!effectiveTab) return
-    const newMap = new Map(threadSelectionMap)
-    const chatSet = new Set(newMap.get(effectiveTab) ?? [])
-    if (chatSet.has(threadId)) {
-      chatSet.delete(threadId)
-    } else {
-      chatSet.add(threadId)
-    }
-    if (chatSet.size === 0) {
-      newMap.delete(effectiveTab)
-    } else {
-      newMap.set(effectiveTab, chatSet)
-    }
-    onThreadIdsChange(serializeThreadSelection(newMap))
+    onThreadIdsChange(
+      serializeThreadSelection(toggleThreadInSelection(threadSelectionMap, effectiveTab, threadId)),
+    )
   }
 
   /** Select all visible (filtered) threads in the active tab */
   const selectAllThreads = () => {
     if (!effectiveTab || !activeThreads) return
-    const newMap = new Map(threadSelectionMap)
-    const existing = newMap.get(effectiveTab) ?? new Set<string>()
-    newMap.set(effectiveTab, new Set([...existing, ...filteredThreads.map((t) => t.id)]))
-    onThreadIdsChange(serializeThreadSelection(newMap))
+    const next = new Map(threadSelectionMap)
+    const existing = next.get(effectiveTab) ?? new Set<string>()
+    next.set(effectiveTab, new Set([...existing, ...filteredThreads.map((t) => t.id)]))
+    onThreadIdsChange(serializeThreadSelection(next))
   }
 
   /** Clear all threads for the active tab (ignores search filter) */
   const clearThreads = () => {
     if (!effectiveTab) return
-    const newMap = new Map(threadSelectionMap)
-    newMap.delete(effectiveTab)
-    onThreadIdsChange(serializeThreadSelection(newMap))
+    onThreadIdsChange(serializeThreadSelection(removeChatFromSelection(threadSelectionMap, effectiveTab)))
   }
 
-  /** Force-reload threads for the active tab */
   const reloadThreads = () => {
     if (effectiveTab === null) return
     setThreadsCache((prev) => {
@@ -328,125 +246,86 @@ export function ThreadSelector({
       next.delete(effectiveTab)
       return next
     })
-    // The effect will pick up the missing cache entry and re-fetch
   }
 
-  /** Count selected threads that belong to a given chat */
   const getSelCount = (chatId: string): number => threadSelectionMap.get(chatId)?.size ?? 0
 
-  // ── Group accordion badge ─────────────────────────────────────────────────
-
-  const groupBadge =
-    selectedChatIds.length === 0 ? 'все чаты' : `${selectedChatIds.length} выбрано`
-
-  const threadBadge =
-    totalSelectedThreads === 0 ? 'все ветки' : `${totalSelectedThreads} выбрано`
-
-  // ── Render ────────────────────────────────────────────────────────────────
+  const groupBadge = selectedChatIds.length === 0 ? 'все чаты' : `${selectedChatIds.length} выбрано`
+  const threadBadge = totalSelectedThreads === 0 ? 'все ветки' : `${totalSelectedThreads} выбрано`
 
   return (
     <div className="flex flex-col gap-2">
-
-      {/* ── Accordion 1: Group selection ──────────────────────────────── */}
-      <div className="overflow-hidden rounded-lg border border-border/40 bg-card/40">
-        <AccordionHeader
-          label="Группы"
-          badge={groupBadge}
-          open={groupsOpen}
-          onToggle={() => setGroupsOpen((v) => !v)}
-        />
+      {/* Groups */}
+      <div className="overflow-hidden rounded-tg-box border border-tg-divider">
+        <AccordionHeader label="Группы" badge={groupBadge} open={groupsOpen} onToggle={() => setGroupsOpen((v) => !v)} />
 
         {groupsOpen && (
-          <div className="border-t border-border/30 px-3 pb-3 pt-2">
-            {/* Search + refresh */}
+          <div className="border-t border-tg-divider px-3 pb-3 pt-2">
             <div className="mb-1.5 flex items-center gap-1.5">
-              <input
+              <TgSearchField
                 value={groupSearch}
-                onChange={(e) => setGroupSearch(e.target.value)}
+                onChange={setGroupSearch}
                 placeholder="Поиск групп..."
-                className="min-w-0 flex-1 rounded-md border border-border/50 bg-background px-2 py-1 text-[12px] outline-none focus:border-indigo-500"
+                className="min-w-0 flex-1"
               />
-              <button
-                onClick={loadChats}
-                disabled={chatsLoading}
-                title="Обновить список групп"
-                className="flex-shrink-0 rounded-md border border-border/40 p-1.5 text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:opacity-50"
-              >
+              <TgIconButton label="Обновить список групп" onClick={loadChats} disabled={chatsLoading}>
                 {chatsLoading
-                  ? <Loader2 className="h-3 w-3 animate-spin" />
-                  : <RefreshCw className="h-3 w-3" />}
-              </button>
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <RefreshCw className="h-3.5 w-3.5" />}
+              </TgIconButton>
             </div>
 
-            {/* States */}
             {chatsLoading && allChats.length === 0 && (
               <div className="flex justify-center py-3">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <Loader2 className="h-4 w-4 animate-spin text-tg-text-sub" />
               </div>
             )}
             {!chatsLoading && allChats.length === 0 && (
-              <p className="text-[11px] text-muted-foreground">
-                Telegram не подключён или групп нет
-              </p>
+              <p className="text-tg-sm text-tg-text-sub">Telegram не подключён или групп нет</p>
             )}
             {allChats.length > 0 && filteredChats.length === 0 && (
-              <p className="text-[11px] text-muted-foreground">Ничего не найдено</p>
+              <p className="text-tg-sm text-tg-text-sub">Ничего не найдено</p>
             )}
 
-            {/* Chat list */}
             {filteredChats.length > 0 && (
               <div className="flex max-h-44 flex-col gap-0.5 overflow-y-auto">
-                {filteredChats.map((chat) => {
-                  const isSelected = selectedChatIdSet.has(normalizeCsvToken(chat.id))
-                  return (
-                    <button
-                      key={chat.id}
-                      onClick={() => toggleGroup(chat.id)}
-                      className={itemCls(isSelected)}
-                    >
-                      <span className={checkboxCls(isSelected)}>{isSelected ? '✓' : ''}</span>
-                      <span className="min-w-0 flex-1 truncate">{chat.name}</span>
-                    </button>
-                  )
-                })}
+                {filteredChats.map((chat) => (
+                  <PickRow
+                    key={chat.id}
+                    selected={selectedChatIdSet.has(normalizeCsvToken(chat.id))}
+                    label={chat.name}
+                    onToggle={() => toggleGroup(chat.id)}
+                  />
+                ))}
               </div>
             )}
           </div>
         )}
       </div>
 
-      {/* ── Accordion 2: Thread selection ─────────────────────────────── */}
-      <div className="overflow-hidden rounded-lg border border-border/40 bg-card/40">
-        <AccordionHeader
-          label="Ветки"
-          badge={threadBadge}
-          open={threadsOpen}
-          onToggle={() => setThreadsOpen((v) => !v)}
-        />
+      {/* Threads */}
+      <div className="overflow-hidden rounded-tg-box border border-tg-divider">
+        <AccordionHeader label="Ветки" badge={threadBadge} open={threadsOpen} onToggle={() => setThreadsOpen((v) => !v)} />
 
         {threadsOpen && (
-          <div className="border-t border-border/30">
-            {/* Empty state: no groups selected */}
+          <div className="border-t border-tg-divider">
             {selectedChatIds.length === 0 ? (
-              <p className="px-3 py-3 text-[11px] text-muted-foreground">
-                Сначала выберите группы выше
-              </p>
+              <p className="px-3 py-3 text-tg-sm text-tg-text-sub">Сначала выберите группы выше</p>
             ) : (
               <>
-                {/* ── Tab bar ──────────────────────────────────────────── */}
-                <div className="flex items-center gap-1 border-b border-border/20 px-2 py-1.5">
-                  {/* Prev page */}
+                <div className="flex items-center gap-1 border-b border-tg-divider px-2 py-1.5">
                   {totalPages > 1 && (
                     <button
+                      type="button"
                       onClick={() => setTabPage((p) => Math.max(0, p - 1))}
                       disabled={tabPage === 0}
-                      className="flex-shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
+                      aria-label="Предыдущая страница"
+                      className="flex-none rounded p-0.5 text-tg-text-sub transition-colors duration-tg-universal hover:text-tg-text disabled:opacity-30"
                     >
                       <ChevronLeft className="h-3.5 w-3.5" />
                     </button>
                   )}
 
-                  {/* Tab buttons */}
                   <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
                     {visibleTabs.map((chat) => {
                       const selCount = getSelCount(chat.id)
@@ -454,17 +333,19 @@ export function ThreadSelector({
                       return (
                         <button
                           key={chat.id}
+                          type="button"
                           onClick={() => setActiveTab(chat.id)}
                           className={cn(
-                            'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors',
+                            'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-tg-btn px-2 py-1 text-tg-sm',
+                            'transition-colors duration-tg-universal',
                             isActive
-                              ? 'bg-indigo-500/20 text-indigo-300'
-                              : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                              ? 'bg-tg-accent/15 text-tg-accent-text'
+                              : 'text-tg-text-sub hover:bg-tg-bg-over',
                           )}
                         >
                           <span className="min-w-0 truncate">{chat.name}</span>
                           {selCount > 0 && (
-                            <span className="flex-shrink-0 rounded-full bg-indigo-500/30 px-1.5 text-[9px] font-semibold text-indigo-400">
+                            <span className="flex-none rounded-full bg-tg-accent/25 px-1.5 text-[10px] font-semibold text-tg-accent-text">
                               ✓{selCount}
                             </span>
                           )}
@@ -473,30 +354,31 @@ export function ThreadSelector({
                     })}
                   </div>
 
-                  {/* Next page */}
                   {totalPages > 1 && (
                     <button
+                      type="button"
                       onClick={() => setTabPage((p) => Math.min(totalPages - 1, p + 1))}
                       disabled={tabPage === totalPages - 1}
-                      className="flex-shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
+                      aria-label="Следующая страница"
+                      className="flex-none rounded p-0.5 text-tg-text-sub transition-colors duration-tg-universal hover:text-tg-text disabled:opacity-30"
                     >
                       <ChevronRight className="h-3.5 w-3.5" />
                     </button>
                   )}
 
-                  {/* Page indicator */}
                   {totalPages > 1 && (
-                    <span className="flex-shrink-0 text-[10px] text-muted-foreground/50">
+                    <span className="flex-none text-tg-sm text-tg-text-sub">
                       {tabPage + 1}/{totalPages}
                     </span>
                   )}
 
-                  {/* Reload threads for current tab */}
                   <button
+                    type="button"
                     onClick={reloadThreads}
                     disabled={threadLoadingFor === effectiveTab}
                     title="Перезагрузить ветки"
-                    className="ml-1 flex-shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
+                    aria-label="Перезагрузить ветки"
+                    className="ml-1 flex-none rounded p-0.5 text-tg-text-sub transition-colors duration-tg-universal hover:text-tg-text disabled:opacity-30"
                   >
                     {threadLoadingFor === effectiveTab
                       ? <Loader2 className="h-3 w-3 animate-spin" />
@@ -504,67 +386,58 @@ export function ThreadSelector({
                   </button>
                 </div>
 
-                {/* ── Thread content ────────────────────────────────────── */}
                 <div className="flex flex-col gap-1.5 px-3 py-2">
-                  {/* Search + Button group */}
                   <div className="flex items-center gap-1.5">
-                    <input
+                    <TgSearchField
                       value={threadSearch}
-                      onChange={(e) => setThreadSearch(e.target.value)}
+                      onChange={setThreadSearch}
                       placeholder="Поиск веток..."
-                      className="min-w-0 flex-1 rounded-md border border-border/50 bg-background px-2 py-1 text-[12px] outline-none focus:border-indigo-500"
+                      className="min-w-0 flex-1"
                     />
-
-                    {/* Preset button group */}
-                    <div className="flex flex-shrink-0 overflow-hidden rounded-md border border-border/50">
+                    <div className="flex flex-none overflow-hidden rounded-tg-btn border border-tg-divider">
                       <button
+                        type="button"
                         onClick={selectAllThreads}
                         disabled={!activeThreads || activeThreads.length === 0}
                         title={threadSearch ? 'Выбрать найденные' : 'Выбрать все ветки'}
-                        className="border-r border-border/50 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-indigo-500/10 hover:text-indigo-400 disabled:opacity-40"
+                        className="border-r border-tg-divider px-2.5 py-1 text-tg-sm text-tg-text-sub transition-colors duration-tg-universal hover:bg-tg-bg-over hover:text-tg-accent-text disabled:opacity-40"
                       >
                         Все
                       </button>
                       <button
+                        type="button"
                         onClick={clearThreads}
                         disabled={!activeThreads || activeThreads.length === 0}
                         title="Сбросить выбор веток"
-                        className="px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:opacity-40"
+                        className="px-2.5 py-1 text-tg-sm text-tg-text-sub transition-colors duration-tg-universal hover:bg-tg-bg-over hover:text-tg-danger disabled:opacity-40"
                       >
                         Сброс
                       </button>
                     </div>
                   </div>
 
-                  {/* Thread list / states */}
                   {activeThreads === null ? (
-                    // Loading (not yet in cache, effect will fire)
                     <div className="flex justify-center py-3">
-                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      <Loader2 className="h-4 w-4 animate-spin text-tg-text-sub" />
                     </div>
                   ) : activeThreads.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-tg-sm text-tg-text-sub">
                       Нет тем — группа не является форумом или тем недоступны.
                       Оставьте пустым — слушать все ветки.
                     </p>
                   ) : filteredThreads.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground">Ничего не найдено</p>
+                    <p className="text-tg-sm text-tg-text-sub">Ничего не найдено</p>
                   ) : (
                     <div className="flex max-h-44 flex-col gap-0.5 overflow-y-auto">
-                      {filteredThreads.map((thread) => {
-                        const isSelected = selectedThreadIdsForTab.has(thread.id)
-                        return (
-                          <button
-                            key={thread.id}
-                            onClick={() => toggleThread(thread.id)}
-                            className={itemCls(isSelected)}
-                          >
-                            <span className={checkboxCls(isSelected)}>{isSelected ? '✓' : ''}</span>
-                            <span className="min-w-0 flex-1 truncate">{thread.name}</span>
-                            <span className="text-[10px] text-muted-foreground/50">#{thread.id}</span>
-                          </button>
-                        )
-                      })}
+                      {filteredThreads.map((thread) => (
+                        <PickRow
+                          key={thread.id}
+                          selected={selectedThreadIdsForTab.has(thread.id)}
+                          label={thread.name}
+                          trailing={`#${thread.id}`}
+                          onToggle={() => toggleThread(thread.id)}
+                        />
+                      ))}
                     </div>
                   )}
                 </div>
