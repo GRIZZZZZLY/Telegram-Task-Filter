@@ -6,32 +6,9 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Old shadcn names, now fed by Telegram tokens. They exist so the
-        // screens not yet rewritten pick up the new palette. Delete this
-        // block once no `bg-background` style class remains in src.
-        background: 'rgb(var(--tg-bg) / <alpha-value>)',
-        foreground: 'rgb(var(--tg-text) / <alpha-value>)',
-        card: {
-          DEFAULT: 'rgb(var(--tg-bg) / <alpha-value>)',
-          foreground: 'rgb(var(--tg-text) / <alpha-value>)',
-        },
-        primary: {
-          DEFAULT: 'rgb(var(--tg-accent) / <alpha-value>)',
-          foreground: 'rgb(var(--tg-on-accent) / <alpha-value>)',
-        },
-        muted: {
-          DEFAULT: 'rgb(var(--tg-bg-over) / <alpha-value>)',
-          foreground: 'rgb(var(--tg-text-sub) / <alpha-value>)',
-        },
-        accent: {
-          DEFAULT: 'rgb(var(--tg-bg-over) / <alpha-value>)',
-          foreground: 'rgb(var(--tg-text-bold) / <alpha-value>)',
-        },
-        border: 'rgb(var(--tg-divider) / <alpha-value>)',
-        input: 'rgb(var(--tg-divider) / <alpha-value>)',
-        ring: 'rgb(var(--tg-accent) / <alpha-value>)',
-
-        // Telegram scale for new code.
+        // The Telegram scale is the only colour source. The shadcn names that
+        // used to sit here fed unrewritten screens during the redesign and
+        // were removed once the last one moved over.
         tg: {
           bg: 'rgb(var(--tg-bg) / <alpha-value>)',
           'bg-over': 'rgb(var(--tg-bg-over) / <alpha-value>)',

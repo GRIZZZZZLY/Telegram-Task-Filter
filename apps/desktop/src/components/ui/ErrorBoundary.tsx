@@ -34,15 +34,15 @@ export class ErrorBoundary extends Component<Props, State> {
       if (this.props.fallback) return this.props.fallback
 
       return (
-        <div className="flex h-screen flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+        <div className="flex h-screen flex-col items-center justify-center gap-3 bg-tg-bg px-6 text-center">
           <p className="text-3xl">💥</p>
-          <p className="text-sm font-semibold text-foreground">Что-то пошло не так</p>
-          <p className="max-w-xs text-[11px] leading-relaxed text-muted-foreground">
+          <p className="text-tg-box font-semibold text-tg-text-bold">Что-то пошло не так</p>
+          <p className="max-w-xs text-tg-sm leading-relaxed text-tg-text-sub">
             {this.state.error?.message ?? 'Неизвестная ошибка рендеринга'}
           </p>
           <button
             onClick={this.handleReload}
-            className="mt-2 rounded-lg border border-border/50 px-4 py-1.5 text-[12px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+            className="mt-2 rounded-tg-btn border border-tg-divider px-4 py-1.5 text-tg-sm text-tg-text-sub transition-colors duration-tg-universal hover:bg-tg-bg-over hover:text-tg-text"
           >
             Попробовать снова
           </button>
