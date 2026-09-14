@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="380" viewBox="0 0 1200 380"
+     role="img" aria-labelledby="hero-title hero-desc">
+  <title id="hero-title">TG Focus Filter</title>
+  <desc id="hero-desc">Windows-приложение: сообщения с вашим упоминанием из выбранных чатов Telegram становятся списком задач, а «Готово» закрывает их обратно в чат реакцией и ответом.</desc>
+
+  <rect width="1200" height="380" rx="26" fill="#17212B"/>
+
+  <g id="title-block" transform="translate(56 0)">
+    <text x="0" y="86" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="20" letter-spacing="3" fill="#708499">WINDOWS · TELEGRAM · ЛОКАЛЬНО</text>
+
+    <text x="0" y="164" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+          font-size="62" font-weight="700" fill="#F5F5F5">TG Focus Filter</text>
+
+    <text x="0" y="216" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+          font-size="27" fill="#AEBDCC">Сообщения с вашим @упоминанием</text>
+    <text x="0" y="252" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+          font-size="27" fill="#AEBDCC">становятся списком задач.</text>
+    <text x="0" y="288" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+          font-size="27" fill="#6AB3F3">«Готово» закрывает их обратно в чате.</text>
+
+    <text x="0" y="336" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="20" fill="#708499">v0.1.16 · SQLite на вашем диске · без сервера</text>
+  </g>
+
+  <g id="task-list-proof" transform="translate(700 48)">
+    <rect width="444" height="284" rx="20" fill="#232E3C" stroke="#2C3A4A" stroke-width="1.5"/>
+
+    <text x="24" y="42" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="19" letter-spacing="2" fill="#708499">ВХОДЯЩИЕ</text>
+    <rect x="130" y="24" width="38" height="26" rx="13" fill="#5288C1"/>
+    <text x="149" y="42" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#FFFFFF">2</text>
+
+    <g id="task-row-1" transform="translate(0 62)">
+      <rect x="10" y="0" width="424" height="78" rx="14" fill="#2B3A4A"/>
+      <rect x="10" y="10" width="4" height="58" rx="2" fill="#DC3D3D"/>
+      <circle cx="52" cy="39" r="18" fill="#5288C1"/>
+      <text x="52" y="46" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+            font-size="18" fill="#FFFFFF">АП</text>
+      <text x="84" y="34" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+            font-size="22" fill="#F5F5F5">Отчёт по складу</text>
+      <text x="84" y="60" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+            font-size="19" fill="#708499">Логистика · тема #173 · 14:02</text>
+
+      <g id="row-actions" transform="translate(316 25)" stroke="#AEBDCC" stroke-width="2" fill="none"
+         stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="14" cy="14" r="14" fill="#38485A" stroke="none"/>
+        <path d="M8 14.5 12.5 19 20 10"/>
+        <circle cx="50" cy="14" r="14" fill="#38485A" stroke="none"/>
+        <circle cx="50" cy="14" r="7"/>
+        <path d="M50 10v4.5l3 2"/>
+        <circle cx="86" cy="14" r="14" fill="#38485A" stroke="none"/>
+        <path d="M79 14c3.5-5 10.5-5 14 0-3.5 5-10.5 5-14 0Z"/>
+        <circle cx="86" cy="14" r="2.2" fill="#AEBDCC" stroke="none"/>
+        <circle cx="122" cy="14" r="14" fill="#38485A" stroke="none"/>
+        <circle cx="116" cy="14" r="1.8" fill="#AEBDCC" stroke="none"/>
+        <circle cx="122" cy="14" r="1.8" fill="#AEBDCC" stroke="none"/>
+        <circle cx="128" cy="14" r="1.8" fill="#AEBDCC" stroke="none"/>
+      </g>
+    </g>
+
+    <g id="task-row-2" transform="translate(0 148)">
+      <rect x="10" y="10" width="4" height="58" rx="2" fill="#5BC45B"/>
+      <circle cx="52" cy="39" r="18" fill="#38485A"/>
+      <text x="52" y="46" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+            font-size="18" fill="#AEBDCC">МК</text>
+      <text x="84" y="34" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+            font-size="22" fill="#F5F5F5">Счёт на оплату до пятницы</text>
+      <text x="84" y="60" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+            font-size="19" fill="#708499">Бухгалтерия · вчера · в работе</text>
+    </g>
+
+    <line x1="24" y1="236" x2="420" y2="236" stroke="#2C3A4A" stroke-width="1.5"/>
+    <text x="24" y="266" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="19" fill="#5BC45B">Готово → реакция и ответ в чат</text>
+  </g>
+</svg>

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="470" viewBox="0 0 1200 470"
+     role="img" aria-labelledby="pipe-title pipe-desc">
+  <title id="pipe-title">Путь сообщения до задачи и обратно</title>
+  <desc id="pipe-desc">Четыре шага: слушатель читает выбранные чаты, фильтр оставляет сообщения с упоминанием, задача живёт во «Входящих», «Готово» возвращает в чат реакцию и ответ.</desc>
+
+  <rect width="1200" height="470" rx="26" fill="#17212B"/>
+
+  <g id="step-1" transform="translate(0 30)">
+    <rect x="40" y="0" width="1120" height="76" rx="16" fill="#232E3C"/>
+    <rect x="64" y="18" width="48" height="40" rx="10" fill="#2B3A4A"/>
+    <text x="88" y="45" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="20" fill="#6AB3F3">01</text>
+    <text x="136" y="46" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+          font-size="24" font-weight="600" fill="#F5F5F5">Слушаем</text>
+    <text x="400" y="46" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+          font-size="21" fill="#AEBDCC">Выбранные чаты и темы форума: живой поток плюс догон истории</text>
+  </g>
+  <path d="M88 116 v14 M82 126 l6 8 6-8" stroke="#3A4C5E" stroke-width="2" fill="none" stroke-linecap="round"/>
+
+  <g id="step-2" transform="translate(0 148)">
+    <rect x="40" y="0" width="1120" height="76" rx="16" fill="#232E3C"/>
+    <rect x="64" y="18" width="48" height="40" rx="10" fill="#2B3A4A"/>
+    <text x="88" y="45" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="20" fill="#6AB3F3">02</text>
+    <text x="136" y="46" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+          font-size="24" font-weight="600" fill="#F5F5F5">Фильтруем</text>
+    <text x="400" y="46" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+          font-size="21" fill="#AEBDCC">Нужно ваше @упоминание; приоритет задаёт rules.yaml</text>
+  </g>
+  <path d="M88 234 v14 M82 244 l6 8 6-8" stroke="#3A4C5E" stroke-width="2" fill="none" stroke-linecap="round"/>
+
+  <g id="step-3" transform="translate(0 266)">
+    <rect x="40" y="0" width="1120" height="76" rx="16" fill="#232E3C"/>
+    <rect x="64" y="18" width="48" height="40" rx="10" fill="#2B3A4A"/>
+    <text x="88" y="45" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="20" fill="#6AB3F3">03</text>
+    <text x="136" y="46" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+          font-size="24" font-weight="600" fill="#F5F5F5">Держим задачу</text>
+    <text x="400" y="46" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+          font-size="21" fill="#AEBDCC">Входящие, отложить, «в работу»; правки сообщения видны в задаче</text>
+  </g>
+  <path d="M88 352 v14 M82 362 l6 8 6-8" stroke="#3A4C5E" stroke-width="2" fill="none" stroke-linecap="round"/>
+
+  <g id="step-4" transform="translate(0 384)">
+    <rect x="40" y="0" width="1120" height="76" rx="16" fill="#232E3C" stroke="#5BC45B" stroke-width="1.5"/>
+    <rect x="64" y="18" width="48" height="40" rx="10" fill="#2B3A4A"/>
+    <text x="88" y="45" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="20" fill="#5BC45B">04</text>
+    <text x="136" y="46" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+          font-size="24" font-weight="600" fill="#F5F5F5">Закрываем</text>
+    <text x="400" y="46" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+          font-size="21" fill="#AEBDCC">5 секунд на отмену, затем реакция и ответ в исходном чате</text>
+  </g>
+</svg>
