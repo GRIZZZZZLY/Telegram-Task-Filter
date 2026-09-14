@@ -1,0 +1,169 @@
+/* Generated from Telegram Desktop sources. Do not edit by hand.
+   day:   desktop-app/lib_ui  ui/colors.palette
+   night: telegramdesktop/tdesktop  Telegram/Resources/night.tdesktop-theme
+   Channels are stored as "R G B" so Tailwind can apply alpha modifiers.
+   Tokens whose transparency is baked into the Telegram palette are rgba(). */
+
+:root, .light {
+  --tg-bg: 255 255 255;
+  --tg-bg-over: 241 241 241;
+  --tg-bg-ripple: 229 229 229;
+  --tg-text: 0 0 0;
+  --tg-text-bold: 34 34 34;
+  --tg-text-sub: 153 153 153;
+  --tg-text-sub-over: 145 145 145;
+  --tg-accent: 64 167 227;
+  --tg-accent-text: 22 138 205;
+  --tg-on-accent: 255 255 255;
+  --tg-divider: 224 224 224;
+  --tg-row-bg-over: 241 241 241;
+  --tg-row-ripple: 229 229 229;
+  --tg-row-active-bg: 65 159 217;
+  --tg-row-active-text: 255 255 255;
+  --tg-row-active-ripple: 32 149 208;
+  --tg-row-name: 34 34 34;
+  --tg-row-text: 153 153 153;
+  --tg-row-date: 153 153 153;
+  --tg-badge-bg: 64 167 227;
+  --tg-badge-bg-muted: 187 187 187;
+  --tg-badge-text: 255 255 255;
+  --tg-btn-bg: 64 167 227;
+  --tg-btn-bg-over: 57 165 219;
+  --tg-btn-ripple: 32 149 208;
+  --tg-btn-light-bg-over: 227 241 250;
+  --tg-btn-light-ripple: 201 228 246;
+  --tg-btn-light-text: 22 138 205;
+  --tg-danger: 209 78 78;
+  --tg-menu-bg: 255 255 255;
+  --tg-menu-icon: 153 153 153;
+  --tg-menu-separator: 241 241 241;
+  --tg-menu-disabled: 204 204 204;
+  --tg-box-bg: 255 255 255;
+  --tg-box-title: 64 64 64;
+  --tg-box-good: 74 180 74;
+  --tg-box-error: 216 77 77;
+  --tg-placeholder: 153 153 153;
+  --tg-line-active: 55 161 222;
+  --tg-line-error: 228 131 131;
+  --tg-checkbox-off: 179 179 179;
+  --tg-tooltip-bg: 238 242 245;
+  --tg-tooltip-text: 93 108 128;
+  --tg-title-bg: 241 241 241;
+  --tg-title-text: 62 60 62;
+  --tg-title-btn: 171 171 171;
+  --tg-title-btn-over-bg: 229 229 229;
+  --tg-title-btn-over: 154 154 154;
+  --tg-title-close-over-bg: 232 17 35;
+  --tg-search-bg: 241 241 241;
+  --tg-layer: rgba(0, 0, 0, 0.498);
+  --tg-shadow: rgba(0, 0, 0, 0.094);
+  --tg-scroll-thumb: rgba(0, 0, 0, 0.325);
+  --tg-scroll-thumb-over: rgba(0, 0, 0, 0.478);
+  --tg-scroll-track: rgba(0, 0, 0, 0.102);
+  --tg-danger-bg-over: rgb(252, 223, 222);
+  --tg-danger-ripple: rgb(244, 195, 194);
+  --tg-peer-1: 192 61 51;
+  --tg-peer-2: 79 173 45;
+  --tg-peer-3: 208 147 6;
+  --tg-peer-4: 22 138 205;
+  --tg-peer-5: 133 68 214;
+  --tg-peer-6: 205 64 115;
+  --tg-peer-7: 41 150 173;
+  --tg-peer-8: 206 103 27;
+  --tg-window-bg-hex: #ffffff;
+}
+
+.dark {
+  --tg-bg: 23 33 43;
+  --tg-bg-over: 35 46 60;
+  --tg-bg-ripple: 36 48 61;
+  --tg-text: 245 245 245;
+  --tg-text-bold: 233 232 232;
+  --tg-text-sub: 112 132 153;
+  --tg-text-sub-over: 124 144 164;
+  --tg-accent: 82 136 193;
+  --tg-accent-text: 106 179 243;
+  --tg-on-accent: 255 255 255;
+  --tg-divider: 49 60 73;
+  --tg-row-bg-over: 32 43 54;
+  --tg-row-ripple: 37 49 61;
+  --tg-row-active-bg: 43 82 120;
+  --tg-row-active-text: 255 255 255;
+  --tg-row-active-ripple: 49 90 128;
+  --tg-row-name: 245 245 245;
+  --tg-row-text: 127 145 164;
+  --tg-row-date: 134 150 168;
+  --tg-badge-bg: 64 130 188;
+  --tg-badge-bg-muted: 62 84 106;
+  --tg-badge-text: 255 255 255;
+  --tg-btn-bg: 47 110 165;
+  --tg-btn-bg-over: 52 118 171;
+  --tg-btn-ripple: 59 124 177;
+  --tg-btn-light-bg-over: 29 42 57;
+  --tg-btn-light-ripple: 34 49 67;
+  --tg-btn-light-text: 106 178 242;
+  --tg-danger: 236 57 66;
+  --tg-menu-bg: 23 33 43;
+  --tg-menu-icon: 108 120 131;
+  --tg-menu-separator: 35 47 57;
+  --tg-menu-disabled: 61 78 92;
+  --tg-box-bg: 23 33 43;
+  --tg-box-title: 235 235 235;
+  --tg-box-good: 85 152 219;
+  --tg-box-error: 220 61 61;
+  --tg-placeholder: 109 120 131;
+  --tg-line-active: 99 150 203;
+  --tg-line-error: 239 89 89;
+  --tg-checkbox-off: 79 98 118;
+  --tg-tooltip-bg: 22 34 45;
+  --tg-tooltip-text: 212 224 234;
+  --tg-title-bg: 36 47 61;
+  --tg-title-text: 145 163 179;
+  --tg-title-btn: 87 102 115;
+  --tg-title-btn-over-bg: 37 48 62;
+  --tg-title-btn-over: 224 224 224;
+  --tg-title-close-over-bg: 233 37 57;
+  --tg-search-bg: 36 47 61;
+  --tg-layer: rgba(0, 0, 0, 0.498);
+  --tg-shadow: rgba(4, 8, 14, 0.337);
+  --tg-scroll-thumb: rgba(255, 255, 255, 0.325);
+  --tg-scroll-thumb-over: rgba(255, 255, 255, 0.478);
+  --tg-scroll-track: rgba(255, 255, 255, 0.102);
+  --tg-danger-bg-over: rgba(89, 42, 42, 0.392);
+  --tg-danger-ripple: rgba(104, 50, 50, 0.392);
+  --tg-peer-1: 251 97 105;
+  --tg-peer-2: 133 222 133;
+  --tg-peer-3: 243 188 92;
+  --tg-peer-4: 101 189 243;
+  --tg-peer-5: 180 139 242;
+  --tg-peer-6: 255 86 148;
+  --tg-peer-7: 98 212 227;
+  --tg-peer-8: 250 163 87;
+  --tg-window-bg-hex: #17212b;
+}
+
+/* High contrast. Only the tokens that failed WCAG AA are redefined;
+   values keep the original hue and move lightness until the ratio is 4.5. */
+:root.tg-hc, .tg-hc.light {
+  --tg-text-sub: 118 118 118;
+  --tg-row-text: 118 118 118;
+  --tg-row-date: 118 118 118;
+  --tg-placeholder: 118 118 118;
+  --tg-title-btn: 110 110 110;
+  --tg-accent: 27 125 183;
+  --tg-btn-bg: 27 125 183;
+  --tg-badge-bg: 27 125 183;
+  --tg-badge-bg-muted: 118 118 118;
+  --tg-row-active-bg: 36 125 180;
+  --tg-danger: 207 71 71;
+  --tg-btn-light-text: 20 125 185;
+}
+
+.tg-hc.dark {
+  --tg-text-sub: 117 137 157;
+  --tg-placeholder: 125 136 146;
+  --tg-title-btn: 135 151 164;
+  --tg-accent: 65 121 181;
+  --tg-badge-bg: 60 123 178;
+  --tg-danger: 238 76 84;
+}
