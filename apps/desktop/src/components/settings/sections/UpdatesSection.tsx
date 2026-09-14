@@ -2,29 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Loader2, RefreshCw, Download, CheckCircle2 } from 'lucide-react'
 import { TgSection, TgSettingRow, TgButton } from '@/components/tg'
 import { cn } from '@/lib/utils'
-
-interface UpdateState {
-  status: 'idle' | 'unsupported' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
-  currentVersion: string
-  availableVersion: string | null
-  progress: number
-  message: string | null
-  checkedAt: string | null
-}
-
-function parseUpdateState(value: unknown): UpdateState | null {
-  if (!value || typeof value !== 'object') return null
-  const v = value as Partial<UpdateState>
-  if (typeof v.status !== 'string' || typeof v.currentVersion !== 'string') return null
-  return {
-    status: v.status as UpdateState['status'],
-    currentVersion: v.currentVersion,
-    availableVersion: typeof v.availableVersion === 'string' ? v.availableVersion : null,
-    progress: typeof v.progress === 'number' ? v.progress : 0,
-    message: typeof v.message === 'string' ? v.message : null,
-    checkedAt: typeof v.checkedAt === 'string' ? v.checkedAt : null,
-  }
-}
+import { parseUpdateState } from '@/lib/update-state'
+import type { UpdateState } from '@/lib/update-state'
 
 export function UpdatesSection() {
   const [appVersion, setAppVersion] = useState<string | null>(null)
