@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import { Loader2, Trash2, Search, X } from 'lucide-react'
+import { Loader2, Trash2, X } from 'lucide-react'
 import { TaskCard } from './TaskCard'
 import { TaskDetailModal } from './TaskDetailModal'
+import { TgSearchField, TgToast, TgButton } from '@/components/tg'
 import { useTasks } from '@/hooks/useTasks'
 import { useChatNames } from '@/hooks/useChatNames'
 import { useThreadNames } from '@/hooks/useThreadNames'
@@ -26,8 +27,15 @@ interface Props {
   overlayOpen?: boolean
 }
 
-export function TaskList({ tab, compact = false, displayMode, onInboxCountChange, onEscape, refreshTrigger, overlayOpen = false }: Props) {
-  // Resolve effective display mode: prefer displayMode prop, fall back to compact legacy
+export function TaskList({
+  tab,
+  compact = false,
+  displayMode,
+  onInboxCountChange,
+  onEscape,
+  refreshTrigger,
+  overlayOpen = false,
+}: Props) {
   const effectiveMode = displayMode ?? (compact ? 'compact' : 'standard')
   const {
     tasks,
@@ -61,7 +69,6 @@ export function TaskList({ tab, compact = false, displayMode, onInboxCountChange
   const chatNames = useChatNames()
   const threadNames = useThreadNames(tasks)
 
-  // Local search filter — case-insensitive match on title + body
   const visibleTasks = search.trim()
     ? tasks.filter((t) => {
         const q = search.toLowerCase()
@@ -72,7 +79,6 @@ export function TaskList({ tab, compact = false, displayMode, onInboxCountChange
       })
     : tasks
 
-  // ── Keyboard navigation ──────────────────────────────────────────────────
   const { selectedTaskId, setSelectedTaskId } = useKeyboard({
     tasks: visibleTasks,
     onDone: (id) => void handleDone(id),
@@ -88,35 +94,6 @@ export function TaskList({ tab, compact = false, displayMode, onInboxCountChange
     const t = setTimeout(clearActionError, 5000)
     return () => clearTimeout(t)
   }, [actionError, clearActionError])
-
-  const notice = actionError ? (
-    <div
-      role="alert"
-      className="mb-2 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-400"
-    >
-      <span className="min-w-0 flex-1 break-words">Не получилось: {actionError}</span>
-      <button
-        onClick={clearActionError}
-        aria-label="Скрыть сообщение"
-        className="shrink-0 rounded p-0.5 text-red-400/70 transition-colors hover:text-red-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400/60"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  ) : pendingDismiss ? (
-    <div
-      role="status"
-      className="mb-2 flex items-center gap-2 rounded-lg border border-border/40 bg-muted/30 px-3 py-2 text-[12px] text-muted-foreground"
-    >
-      <span className="min-w-0 flex-1 truncate">Убрано: {pendingDismiss.title}</span>
-      <button
-        onClick={handleUndoDismiss}
-        className="shrink-0 font-medium text-foreground transition-colors hover:text-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400/60"
-      >
-        Отменить
-      </button>
-    </div>
-  ) : null
 
   // ── Drag-and-drop state ──────────────────────────────────────────────────
   const dragIdRef = useRef<number | null>(null)
@@ -143,18 +120,16 @@ export function TaskList({ tab, compact = false, displayMode, onInboxCountChange
     if (tab === 'inbox') onInboxCountChange?.(tasks.length)
   }, [tab, tasks.length, onInboxCountChange])
 
-  // ── DnD handlers (inbox only) ────────────────────────────────────────────
-
   const onDragStart = (id: number) => {
     const task = tasks.find((t) => t.id === id)
-    if (task && isPinnedTask(task)) return  // Закреплённые не перетаскиваются
+    if (task && isPinnedTask(task)) return
     dragIdRef.current = id
   }
 
   const onDragOver = (e: React.DragEvent, overId: number) => {
     e.preventDefault()
     const overTask = tasks.find((t) => t.id === overId)
-    if (overTask && isPinnedTask(overTask)) return  // Нельзя бросать на закреплённую
+    if (overTask && isPinnedTask(overTask)) return
     if (dragIdRef.current !== overId) setDragOverId(overId)
   }
 
@@ -167,9 +142,8 @@ export function TaskList({ tab, compact = false, displayMode, onInboxCountChange
     }
 
     const fromTask = tasks.find((t) => t.id === fromId)
-    const toTask   = tasks.find((t) => t.id === targetId)
+    const toTask = tasks.find((t) => t.id === targetId)
 
-    // Защита: закреплённые задачи не участвуют в DnD
     if ((fromTask && isPinnedTask(fromTask)) || (toTask && isPinnedTask(toTask))) {
       dragIdRef.current = null
       setDragOverId(null)
@@ -177,19 +151,17 @@ export function TaskList({ tab, compact = false, displayMode, onInboxCountChange
     }
 
     setTasks((prev: Task[]) => {
-      // Закреплённые всегда остаются сверху, переупорядочиваем только незакреплённые
-      const pinned    = prev.filter((t) => isPinnedTask(t))
+      const pinned = prev.filter((t) => isPinnedTask(t))
       const nonPinned = prev.filter((t) => !isPinnedTask(t))
 
       const fromIdx = nonPinned.findIndex((t) => t.id === fromId)
-      const toIdx   = nonPinned.findIndex((t) => t.id === targetId)
+      const toIdx = nonPinned.findIndex((t) => t.id === targetId)
       if (fromIdx === -1 || toIdx === -1) return prev
 
       const [moved] = nonPinned.splice(fromIdx, 1)
       nonPinned.splice(toIdx, 0, moved)
 
       const next = [...pinned, ...nonPinned]
-      // Передаём все ID — reorder() на бэкенде пропустит закреплённые
       void handleReorder(next.map((t) => t.id))
       return next
     })
@@ -208,137 +180,141 @@ export function TaskList({ tab, compact = false, displayMode, onInboxCountChange
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Loader2 className="h-6 w-6 animate-spin text-tg-text-sub" />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-        <p className="text-sm text-muted-foreground">{error}</p>
-        <p className="text-xs text-muted-foreground/60">
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+        <p className="text-tg-base text-tg-text-sub">{error}</p>
+        <p className="text-tg-sm text-tg-text-sub">
           Убедитесь, что бэкенд запущен на порту 8787
         </p>
       </div>
     )
   }
 
-  if (tasks.length === 0) {
-    return (
-      <>
-        {notice}
-        <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center">
-          <p className="text-sm text-muted-foreground">
-            {tab === 'inbox'
-              ? 'Нет активных'
-              : tab === 'done'
-                ? 'Нет завершённых'
-                : 'Нет отложенных'}
-          </p>
-        </div>
-      </>
-    )
-  }
+  const emptyText = tab === 'inbox'
+    ? 'Нет активных'
+    : tab === 'done'
+      ? 'Нет завершённых'
+      : 'Нет отложенных'
 
   return (
-    <>
-      {notice}
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {/* Search */}
+      {tasks.length > 0 && (
+        <div className="flex-none px-2 py-2">
+          <TgSearchField
+            value={search}
+            onChange={setSearch}
+            placeholder="Поиск по задачам... (Ctrl+F)"
+            inputRef={searchInputRef}
+            onEscape={() => setSearch('')}
+          />
+        </div>
+      )}
 
-      {/* Search bar */}
-      <div className="relative mb-2">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
-        <input
-          ref={searchInputRef}
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') { setSearch(''); e.currentTarget.blur() }
-          }}
-          placeholder="Поиск по задачам... (Ctrl+F)"
-          className={cn(
-            'w-full rounded-lg border border-border/40 bg-muted/30 py-1.5 pl-7 pr-7 text-[12px]',
-            'text-foreground placeholder:text-muted-foreground/40',
-            'outline-none transition-colors focus:border-indigo-500/50 focus:bg-muted/50',
-          )}
-        />
-        {search && (
-          <button
-            onClick={() => setSearch('')}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
-
+      {/* Clear all done */}
       {tab === 'done' && tasks.length > 0 && (
-        <div className="mb-2 flex justify-end">
-          <button
+        <div className="flex flex-none justify-end px-2 pb-1">
+          <TgButton
+            variant="attention"
             onClick={handleClearDone}
             disabled={clearing}
-            className="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1 text-[12px] text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+            className="h-7 px-2 text-tg-sm"
           >
             {clearing
               ? <Loader2 className="h-3 w-3 animate-spin" />
               : <Trash2 className="h-3 w-3" />}
             Очистить все
+          </TgButton>
+        </div>
+      )}
+
+      {/* Action error */}
+      {actionError && (
+        <div
+          role="alert"
+          className="mx-2 mb-1 flex flex-none items-start gap-2 rounded-tg-btn bg-tg-danger/10 px-3 py-2 text-tg-sm text-tg-danger"
+        >
+          <span className="min-w-0 flex-1 break-words">Не получилось: {actionError}</span>
+          <button
+            type="button"
+            onClick={clearActionError}
+            aria-label="Скрыть сообщение"
+            className="shrink-0 rounded p-0.5 transition-colors duration-tg-universal hover:bg-tg-danger/10"
+          >
+            <X className="h-3.5 w-3.5" />
           </button>
         </div>
       )}
 
-      {/* No search results */}
-      {visibleTasks.length === 0 && search && (
-        <div className="flex flex-1 flex-col items-center justify-center gap-1 py-8 text-center">
-          <p className="text-muted-foreground/60 text-[12px]">Ничего не найдено</p>
-        </div>
-      )}
-
-      <div className="flex flex-col gap-2">
-        <AnimatePresence mode="popLayout">
-          {visibleTasks.map((task) => (
-            <div
-              key={task.id}
-              onDragOver={(e) => onDragOver(e, task.id)}
-              onDrop={(e) => onDrop(e, task.id)}
-              onClick={() => setSelectedTaskId(task.id)}
-              className={cn(
-                'transition-opacity rounded-xl',
-                dragIdRef.current === task.id && 'opacity-40',
-                dragOverId === task.id && !isPinnedTask(task) && 'ring-2 ring-indigo-500/60',
-                selectedTaskId === task.id && 'ring-2 ring-indigo-400/70',
-              )}
-            >
-              <TaskCard
-                task={task}
-                compact={effectiveMode === 'compact'}
-                forceExpanded={effectiveMode === 'expanded'}
-                chatNames={chatNames}
-                threadNames={threadNames}
-                onDone={handleDone}
-                onDismiss={handleDismiss}
-                onSnooze={handleSnooze}
-                onReopen={handleReopen}
-                onPriorityChange={(id: number, p: TaskPriority) => handlePriorityChange(id, p)}
-                onPin={tab === 'inbox' ? handlePin : undefined}
-                onStartWork={tab === 'inbox' ? handleStartWork : undefined}
-                loadingId={loadingId}
-                isDragging={tab === 'inbox' && !isPinnedTask(task)}
-                onDragHandleStart={() => onDragStart(task.id)}
-                onDragHandleEnd={onDragEnd}
-                isPendingDone={pendingUndo?.id === task.id}
-                onUndoDone={() => handleUndoDone(task.id)}
-                onDoneExpire={clearUndo}
-                isCommitFailed={failedCommitIds.has(task.id)}
-                onOpenDetail={() => setDetailTask(task)}
-              />
-            </div>
-          ))}
-        </AnimatePresence>
+      {/* Rows */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {tasks.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
+            <p className="text-tg-base text-tg-text-sub">{emptyText}</p>
+          </div>
+        ) : visibleTasks.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center py-8 text-center">
+            <p className="text-tg-sm text-tg-text-sub">Ничего не найдено</p>
+          </div>
+        ) : (
+          <AnimatePresence mode="popLayout">
+            {visibleTasks.map((task) => (
+              <div
+                key={task.id}
+                onDragOver={(e) => onDragOver(e, task.id)}
+                onDrop={(e) => onDrop(e, task.id)}
+                className={cn(
+                  'transition-opacity duration-tg-universal',
+                  dragIdRef.current === task.id && 'opacity-40',
+                  dragOverId === task.id && !isPinnedTask(task) && 'bg-tg-bg-over',
+                )}
+              >
+                <TaskCard
+                  task={task}
+                  compact={effectiveMode === 'compact'}
+                  forceExpanded={effectiveMode === 'expanded'}
+                  chatNames={chatNames}
+                  threadNames={threadNames}
+                  onDone={handleDone}
+                  onDismiss={handleDismiss}
+                  onSnooze={handleSnooze}
+                  onReopen={handleReopen}
+                  onPriorityChange={(id: number, p: TaskPriority) => handlePriorityChange(id, p)}
+                  onPin={tab === 'inbox' ? handlePin : undefined}
+                  onStartWork={tab === 'inbox' ? handleStartWork : undefined}
+                  loadingId={loadingId}
+                  isDragging={tab === 'inbox' && !isPinnedTask(task)}
+                  onDragHandleStart={() => onDragStart(task.id)}
+                  onDragHandleEnd={onDragEnd}
+                  isPendingDone={pendingUndo?.id === task.id}
+                  onUndoDone={() => handleUndoDone(task.id)}
+                  onDoneExpire={clearUndo}
+                  isCommitFailed={failedCommitIds.has(task.id)}
+                  onOpenDetail={() => setDetailTask(task)}
+                  selected={selectedTaskId === task.id}
+                  onSelect={() => setSelectedTaskId(task.id)}
+                />
+              </div>
+            ))}
+          </AnimatePresence>
+        )}
       </div>
 
-      {/* Task detail modal */}
+      {/* Dismiss undo moved from a banner into a toast */}
+      <TgToast
+        open={pendingDismiss !== null}
+        text={pendingDismiss ? `Убрано: ${pendingDismiss.title}` : ''}
+        actionLabel="Отменить"
+        onAction={handleUndoDismiss}
+        onDismiss={() => {/* the hook owns the timer; nothing to do here */}}
+      />
+
       <TaskDetailModal
         task={detailTask}
         chatNames={chatNames}
@@ -351,6 +327,6 @@ export function TaskList({ tab, compact = false, displayMode, onInboxCountChange
         onReopen={handleReopen}
         onPriorityChange={handlePriorityChange}
       />
-    </>
+    </div>
   )
 }

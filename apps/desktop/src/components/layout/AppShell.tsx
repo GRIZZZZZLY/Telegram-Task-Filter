@@ -257,7 +257,7 @@ export function AppShell({ pinSet, onPinChanged }: AppShellProps = {}) {
         />
 
         {/* Content */}
-        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <TaskList
             tab={tab}
             displayMode={displayMode}
