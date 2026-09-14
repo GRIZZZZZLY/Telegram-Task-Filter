@@ -17,7 +17,14 @@ import path from 'path'
 import { deflateSync } from 'zlib'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-interface WindowState { x: number; y: number; width: number; height: number }
+interface WindowState {
+  x: number
+  y: number
+  width: number
+  height: number
+  /** Last theme the renderer reported, used for the window background at launch. */
+  theme?: 'dark' | 'light'
+}
 
 interface UpdaterState {
   status: 'idle' | 'unsupported' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
@@ -200,10 +207,26 @@ function saveWindowState(): void {
   if (!win || win.isMinimized() || win.isMaximized()) return
   const bounds = win.getBounds()
   try {
-    fs.writeFileSync(windowStatePath(), JSON.stringify(bounds), 'utf-8')
+    // Merge: the file also carries the theme, which must survive a move.
+    const previous = readWindowState()
+    fs.writeFileSync(
+      windowStatePath(),
+      JSON.stringify({ ...previous, ...bounds }),
+      'utf-8',
+    )
   } catch {
     // non-fatal
   }
+}
+
+/** Remembered theme, used for the window background before the page loads. */
+function savedTheme(): 'dark' | 'light' {
+  return readWindowState().theme === 'light' ? 'light' : 'dark'
+}
+
+/** Telegram window backgrounds: night #17212b, day #ffffff. */
+function themeBackground(theme: 'dark' | 'light'): string {
+  return theme === 'light' ? '#ffffff' : '#17212b'
 }
 
 // ── Icon generator (no external deps) ────────────────────────────────────────
@@ -593,7 +616,7 @@ function createWindow(): void {
     alwaysOnTop: isPinned,
     resizable: true,
     skipTaskbar: false,
-    backgroundColor: '#0f0f13',
+    backgroundColor: themeBackground(savedTheme()),
     icon: createAppIcon(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
@@ -716,6 +739,20 @@ ipcMain.on('window:toggle-maximize', () => {
   else win?.maximize()
 })
 ipcMain.handle('window:get-maximized', () => win?.isMaximized() ?? false)
+ipcMain.on('window:set-theme', (_event, theme: 'dark' | 'light') => {
+  const next = theme === 'light' ? 'light' : 'dark'
+  win?.setBackgroundColor(themeBackground(next))
+  try {
+    const previous = readWindowState()
+    fs.writeFileSync(
+      windowStatePath(),
+      JSON.stringify({ ...previous, theme: next }),
+      'utf-8',
+    )
+  } catch {
+    // non-fatal
+  }
+})
 ipcMain.on('app:quit', () => {
   app.isQuitting = true
   app.quit()

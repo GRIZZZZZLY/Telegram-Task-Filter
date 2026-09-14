@@ -35,6 +35,7 @@ declare global {
       onUpdatesStateChanged: (cb: (state: unknown) => void) => () => void
       /** Toggle maximize / restore window */
       toggleMaximize: () => void
+      setTheme: (theme: 'dark' | 'light') => void
       /** Get current maximized state */
       getMaximized: () => Promise<boolean>
       /** Listen for maximize state changes pushed from main process */

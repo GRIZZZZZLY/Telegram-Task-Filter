@@ -17,6 +17,9 @@ export function useTheme() {
   useEffect(() => {
     applyTheme(theme)
     localStorage.setItem('theme', theme)
+    // Keep the native window background in step, so launching in the light
+    // theme does not flash the dark frame before the page paints.
+    window.electronAPI?.setTheme(theme)
   }, [theme])
 
   const toggle = () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))

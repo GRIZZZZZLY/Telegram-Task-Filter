@@ -68,6 +68,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** Toggle maximize / restore window */
   toggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),
 
+  /** Tell the main process which theme is active, so the window background matches */
+  setTheme: (theme: 'dark' | 'light') => ipcRenderer.send('window:set-theme', theme),
+
   /** Get current maximized state (async) */
   getMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:get-maximized'),
 
