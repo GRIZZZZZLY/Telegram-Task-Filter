@@ -88,6 +88,14 @@ export function TaskList({
     enabled: tab === 'inbox' && !overlayOpen,
   })
 
+  // Arrow keys move the selection; the row has to follow into view.
+  useEffect(() => {
+    if (selectedTaskId === null) return
+    document
+      .querySelector(`[data-task-id="${selectedTaskId}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [selectedTaskId])
+
   // Action errors fade on their own; the list underneath never goes away
   useEffect(() => {
     if (!actionError) return
@@ -206,7 +214,7 @@ export function TaskList({
     <div className="relative flex min-h-0 flex-1 flex-col">
       {/* Search */}
       {tasks.length > 0 && (
-        <div className="flex-none px-2 py-2">
+        <div className="mx-auto w-full max-w-tg-list flex-none px-2 py-2">
           <TgSearchField
             value={search}
             onChange={setSearch}
@@ -219,7 +227,7 @@ export function TaskList({
 
       {/* Clear all done */}
       {tab === 'done' && tasks.length > 0 && (
-        <div className="flex flex-none justify-end px-2 pb-1">
+        <div className="mx-auto flex w-full max-w-tg-list flex-none justify-end px-2 pb-1">
           <TgButton
             variant="attention"
             onClick={handleClearDone}
@@ -238,7 +246,7 @@ export function TaskList({
       {actionError && (
         <div
           role="alert"
-          className="mx-2 mb-1 flex flex-none items-start gap-2 rounded-tg-btn bg-tg-danger/10 px-3 py-2 text-tg-sm text-tg-danger"
+          className="mx-auto mb-1 flex w-full max-w-tg-list flex-none items-start gap-2 rounded-tg-btn bg-tg-danger/10 px-3 py-2 text-tg-sm text-tg-danger"
         >
           <span className="min-w-0 flex-1 break-words">Не получилось: {actionError}</span>
           <button
@@ -267,10 +275,11 @@ export function TaskList({
             {visibleTasks.map((task) => (
               <div
                 key={task.id}
+                data-task-id={task.id}
                 onDragOver={(e) => onDragOver(e, task.id)}
                 onDrop={(e) => onDrop(e, task.id)}
                 className={cn(
-                  'transition-opacity duration-tg-universal',
+                  'mx-auto w-full max-w-tg-list transition-opacity duration-tg-universal',
                   dragIdRef.current === task.id && 'opacity-40',
                   dragOverId === task.id && !isPinnedTask(task) && 'bg-tg-bg-over',
                 )}

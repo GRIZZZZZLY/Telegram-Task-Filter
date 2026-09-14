@@ -1,4 +1,4 @@
-import { Maximize2, ExternalLink, Pin, PinOff, Flag, Trash2, RotateCcw } from 'lucide-react'
+import { Maximize2, ExternalLink, Pin, PinOff, Flag, Trash2, RotateCcw, MessageSquare } from 'lucide-react'
 import { TgPopupMenu } from '@/components/tg'
 import type { TgMenuItem } from '@/components/tg'
 import type { Task } from '@/types/task'
@@ -14,6 +14,8 @@ interface Props {
   onPin?: (id: number) => void
   onDismiss: (id: number) => void
   onReopen: (id: number) => void
+  /** Opens the inline field that sends a custom reply with "done". */
+  onCustomReply?: () => void
 }
 
 const PRIORITY_LABEL: Record<Task['priority'], string> = {
@@ -37,6 +39,7 @@ export function TaskRowMenu({
   onPin,
   onDismiss,
   onReopen,
+  onCustomReply,
 }: Props) {
   const isInbox = task.status === 'inbox'
   const isPinned = task.sort_order !== null && task.sort_order < 0
@@ -62,6 +65,15 @@ export function TaskRowMenu({
   })
 
   if (isInbox) {
+    if (onCustomReply) {
+      items.push({
+        id: 'custom-reply',
+        label: 'Выполнить со своим ответом',
+        icon: <MessageSquare className="h-4 w-4" />,
+        onSelect: onCustomReply,
+      })
+    }
+
     items.push({
       id: 'priority',
       label: `Приоритет: ${PRIORITY_LABEL[task.priority]}`,

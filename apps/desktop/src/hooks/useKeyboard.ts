@@ -2,7 +2,9 @@
  * Global keyboard shortcut hook for the task list.
  *
  * Shortcuts:
- *  Ctrl+D / Cmd+D  — mark selected (or first visible) inbox task as done
+ *  Ctrl+D / Cmd+D  — mark the selected inbox task as done (selects the first one
+ *                    when nothing is selected yet, so the first press never acts
+ *                    on a task the user cannot see)
  *  Ctrl+Z / Cmd+Z  — undo last done (if pendingUndo is set)
  *  Ctrl+F / Cmd+F  — focus the search input
  *  Escape          — close settings/stats panel; clear search
@@ -73,13 +75,14 @@ export function useKeyboard({
         const inboxTasks = tasks.filter((t) => t.status === 'inbox')
         if (inboxTasks.length === 0) return
 
-        // Use selected task if it's an inbox task, otherwise use first inbox task
-        const target =
-          selectedTaskId !== null && inboxTasks.some((t) => t.id === selectedTaskId)
-            ? selectedTaskId
-            : inboxTasks[0].id
+        // Done always acts on the visible selection: it sends a reaction and a
+        // reply into someone else's chat, so it never guesses a target.
+        if (selectedTaskId === null || !inboxTasks.some((t) => t.id === selectedTaskId)) {
+          setSelectedTaskId(inboxTasks[0].id)
+          return
+        }
 
-        onDone(target)
+        onDone(selectedTaskId)
         return
       }
 

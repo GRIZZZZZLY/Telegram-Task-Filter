@@ -83,6 +83,10 @@ const config: Config = {
       spacing: {
         'tg-title': '24px',
       },
+      maxWidth: {
+        // A wide window must not stretch a task row into a 110-character line.
+        'tg-list': '760px',
+      },
     },
   },
   plugins: [],
