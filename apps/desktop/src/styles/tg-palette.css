@@ -144,7 +144,7 @@
 
 /* High contrast. Only the tokens that failed WCAG AA are redefined;
    values keep the original hue and move lightness until the ratio is 4.5. */
-:root.tg-hc, .tg-hc.light {
+:root.tg-hc:not(.dark), .tg-hc.light {
   --tg-text-sub: 118 118 118;
   --tg-row-text: 118 118 118;
   --tg-row-date: 118 118 118;

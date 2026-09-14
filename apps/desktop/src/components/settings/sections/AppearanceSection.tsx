@@ -8,10 +8,12 @@ import {
   SOUND_PRESETS,
 } from '@/lib/sound'
 import type { SoundPreset } from '@/lib/sound'
+import { useHighContrast } from '@/hooks/useHighContrast'
 import type { SectionProps } from './TelegramSection'
 
 export function AppearanceSection({ settings, patch }: SectionProps) {
   const displayMode = settings.task_display_mode || (settings.compact_mode ? 'compact' : 'standard')
+  const highContrast = useHighContrast()
 
   return (
     <TgSection title="Внешний вид">
@@ -102,6 +104,17 @@ export function AppearanceSection({ settings, patch }: SectionProps) {
           ]}
           active={displayMode}
           onChange={(id) => patch('task_display_mode', id as 'compact' | 'standard' | 'expanded')}
+        />
+      </TgSettingRow>
+
+      <TgSettingRow
+        label="Повышенная контрастность"
+        hint="Тёмный текст и плашки для лучшей читаемости"
+      >
+        <TgToggle
+          checked={highContrast.enabled}
+          onChange={highContrast.toggle}
+          label="Повышенная контрастность"
         />
       </TgSettingRow>
     </TgSection>
