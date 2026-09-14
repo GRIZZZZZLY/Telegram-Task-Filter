@@ -13,6 +13,7 @@ import { TgWindowFrame } from '@/components/tg'
 import { Delete, Lock, ShieldCheck } from 'lucide-react'
 import { verifyPin, setPin as apiSetPin } from '@/api/pin'
 import { cn } from '@/lib/utils'
+import { TG_MS } from '@/lib/tg-motion'
 
 interface Props {
   mode: 'unlock' | 'setup'
@@ -55,7 +56,7 @@ export function PinScreen({ mode, onUnlocked, onSkipSetup }: Props) {
 
   const triggerShake = useCallback(() => {
     setShake(true)
-    setTimeout(() => setShake(false), 500)
+    setTimeout(() => setShake(false), TG_MS.shake)
   }, [])
 
   const handleSubmitUnlock = useCallback(async (fullPin: string) => {
@@ -174,9 +175,9 @@ export function PinScreen({ mode, onUnlocked, onSkipSetup }: Props) {
 
   return (
     <TgWindowFrame className="items-center justify-center">
-      <div className="relative z-10 flex flex-col items-center gap-6 px-8">
+      <div className="flex flex-col items-center gap-6 px-8">
         {/* Icon */}
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-tg-accent/10 text-tg-accent-text">
+        <div className="grid h-16 w-16 place-items-center rounded-full bg-tg-accent/15 text-tg-accent-text">
           {mode === 'setup' ? <ShieldCheck size={32} /> : <Lock size={32} />}
         </div>
 
@@ -189,17 +190,17 @@ export function PinScreen({ mode, onUnlocked, onSkipSetup }: Props) {
         {/* Dots */}
         <div
           className={cn(
-            'flex gap-3 transition-transform',
-            shake && 'animate-[shake_0.5s_ease-in-out]',
+            'flex gap-3',
+            shake && 'animate-[tg-shake_300ms_ease-in-out]',
           )}
         >
           {Array.from({ length: PIN_LENGTH }).map((_, i) => (
             <div
               key={i}
               className={cn(
-                'h-3.5 w-3.5 rounded-full border-2 transition-all duration-150',
+                'h-3.5 w-3.5 rounded-full border-2 transition-all duration-tg-universal',
                 i < pin.length
-                  ? 'border-tg-accent bg-tg-accent scale-110'
+                  ? 'scale-110 border-tg-accent bg-tg-accent'
                   : 'border-tg-checkbox-off bg-transparent',
               )}
             />
@@ -225,15 +226,16 @@ export function PinScreen({ mode, onUnlocked, onSkipSetup }: Props) {
             return (
               <button
                 key={i}
+                type="button"
                 onClick={() => handleKey(key)}
                 disabled={loading || lockSeconds > 0}
+                aria-label={isDelete ? 'Стереть' : key}
                 className={cn(
-                  'flex h-14 w-14 items-center justify-center rounded-xl text-lg font-medium transition-all',
-                  'hover:bg-tg-bg-over active:scale-95',
-                  'disabled:opacity-30 disabled:cursor-not-allowed',
-                  isDelete
-                    ? 'text-tg-text-sub'
-                    : 'text-tg-text',
+                  'grid h-14 w-14 place-items-center rounded-full text-lg font-medium',
+                  'transition-colors duration-tg-universal',
+                  'hover:bg-tg-bg-over active:bg-tg-bg-ripple',
+                  'disabled:cursor-not-allowed disabled:opacity-30',
+                  isDelete ? 'text-tg-text-sub' : 'text-tg-text',
                 )}
               >
                 {isDelete ? <Delete size={20} /> : key}
@@ -245,24 +247,14 @@ export function PinScreen({ mode, onUnlocked, onSkipSetup }: Props) {
         {/* Skip setup (optional) */}
         {mode === 'setup' && onSkipSetup && (
           <button
+            type="button"
             onClick={onSkipSetup}
-            className="mt-2 text-tg-sm text-tg-text-sub transition-colors hover:text-tg-text"
+            className="text-tg-sm text-tg-text-sub transition-colors duration-tg-universal hover:text-tg-text"
           >
             Пропустить (не рекомендуется)
           </button>
         )}
       </div>
-
-      {/* Shake animation */}
-      <style>{`
-        @keyframes shake {
-          0%, 100% { transform: translateX(0); }
-          20% { transform: translateX(-8px); }
-          40% { transform: translateX(8px); }
-          60% { transform: translateX(-6px); }
-          80% { transform: translateX(6px); }
-        }
-      `}</style>
     </TgWindowFrame>
   )
 }
